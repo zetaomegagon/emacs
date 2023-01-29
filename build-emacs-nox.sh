@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-make distclean \
+make extraclean \
     && ./autogen.sh \
     && ./configure --without-all \
 		   --without-x \
