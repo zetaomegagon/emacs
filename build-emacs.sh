@@ -2,7 +2,8 @@
 
 make extraclean \
      && ./autogen.sh \
-     && ./configure --with-mailutils \
+     && ./configure --enable-check-lisp-object-type \
+		    --with-mailutils \
 		    --with-pgtk \
 		    --with-wide-int \
 		    --with-tree-sitter \

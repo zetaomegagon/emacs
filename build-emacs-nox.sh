@@ -4,14 +4,14 @@ make extraclean \
     && ./autogen.sh \
     && ./configure --without-all \
 		   --without-x \
+		   --enable-check-lisp-object-type \
+		   --enable-acl \
+		   --enable-year2038 \
 		   --with-mailutils \
 		   --with-wide-int \
 		   --with-modules \
 		   --with-libsystemd \
 		   --with-tree-sitter \
-		   --enable-check-lisp-object-type \
-		   --enable-acl \
-		   --enable-year2038 \
 		   --with-threads \
 		   --with-json \
 		   --with-zlib \
