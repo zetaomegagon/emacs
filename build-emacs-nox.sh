@@ -21,4 +21,4 @@ make extraclean \
 		   --with-native-compilation=aot \
 		   PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
-make
+make -j
