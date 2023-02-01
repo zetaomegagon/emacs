@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 sudo dnf upgrade -y
+sudo ldconfig /usr/local/lib
 
 make extraclean \
      && ./autogen.sh \
