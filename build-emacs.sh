@@ -42,6 +42,6 @@ if $(emacs-nox --batch --eval "()"); then
     sudo cp ./etc/*.desktop ${prefix}/share/applications/
 
 else
+    # kicking this off will execute this script
     ./build-emacs-nox.sh
-    ./build-emacs.sh
 fi
