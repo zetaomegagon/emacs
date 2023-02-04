@@ -2,8 +2,6 @@
 
 # upgrade dependencies
 sudo dnf upgrade -y
-# link treesitter libs
-sudo ldconfig /usr/local/lib
 
 # clean repo and configure
 make extraclean \
@@ -13,6 +11,7 @@ make extraclean \
 		   --enable-check-lisp-object-type \
 		   --enable-acl \
 		   --enable-year2038 \
+		   --with-sqlite3 \
 		   --with-mailutils \
 		   --with-wide-int \
 		   --with-modules \
@@ -29,12 +28,3 @@ make extraclean \
 
 # begin build
 make -j $(nproc)
-
-# install emacs, enable and start emacs.service
-# kickoff build of GUI emacs
-version="$(./emacs --version | head -1 | cut -d' ' -f3)"
-prefix=/usr/local
-sudo make install \
-    && sudo mv ${prefix}/bin/emacs-${version} ${prefix}/bin/emacs-${version}-nox \
-    && systemctl --user enable --now emacs.service \
-    && ./build-emacs.sh
