@@ -15,3 +15,6 @@ make extraclean \
 		   PKG_CONFIG_PATH=/usr/local/lib/pkgconfig/
 # begin build
 make -j $(nproc)
+
+# install
+make install
