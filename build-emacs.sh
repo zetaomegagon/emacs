@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
-# update dependancies
+# update the system
 sudo dnf upgrade -y
+# install dependancies
+sudo dnf install -y libwebp-devel liblcms2-devel
+sudo dnf builddep -y emacs
 # link tree-sitter libs
 sudo ldconfig /usr/local/lib
 
@@ -19,6 +22,8 @@ make extraclean \
 make -j $(nproc)
 
 # unistall existing emacs
+systemctl --user disable --now emacs.service
 sudo make uninstall
 # install new emacs
 sudo make install
+systemctl --user enable --now emacs.service
