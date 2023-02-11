@@ -12448,7 +12448,7 @@ display_echo_area (struct window *w)
      reset the echo_area_buffer in question to nil at the end because
      with_echo_area_buffer will set it to an empty buffer.  */
   bool i = display_last_displayed_message_p;
-  /* According to the C99, C11 and C++11 standards, the integral value
+  /* According to the C standard, the integral value
      of a "bool" is always 0 or 1, so this array access is safe here,
      if oddly typed. */
   no_message_p = NILP (echo_area_buffer[i]);
@@ -29364,6 +29364,7 @@ fill_gstring_glyph_string (struct glyph_string *s, int face_id,
 			   int start, int end, int overlaps)
 {
   struct glyph *glyph, *last;
+  int voffset;
   Lisp_Object lgstring;
   int i;
   bool glyph_not_available_p;
@@ -29371,6 +29372,7 @@ fill_gstring_glyph_string (struct glyph_string *s, int face_id,
   s->for_overlaps = overlaps;
   glyph = s->row->glyphs[s->area] + start;
   last = s->row->glyphs[s->area] + end;
+  voffset = glyph->voffset;
   glyph_not_available_p = glyph->glyph_not_available_p;
   s->cmp_id = glyph->u.cmp.id;
   s->cmp_from = glyph->slice.cmp.from;
@@ -29420,6 +29422,9 @@ fill_gstring_glyph_string (struct glyph_string *s, int face_id,
      characters of the glyph string.  */
   if (glyph_not_available_p)
     s->font_not_found_p = true;
+
+  /* Adjust base line for subscript/superscript text.  */
+  s->ybase += voffset;
 
   return glyph - s->row->glyphs[s->area];
 }
