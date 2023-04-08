@@ -156,10 +156,12 @@ comment."
         (goto-char (match-beginning 1))
         (move-marker start-marker (point))
         (replace-match " " nil nil nil 1))
+
       ;; Include whitespaces before /*.
       (goto-char start)
       (beginning-of-line)
       (setq start (point))
+
       ;; Mask spaces before "*/" if it is attached at the end
       ;; of a sentence rather than on its own line.
       (goto-char end)
@@ -172,6 +174,7 @@ comment."
         (setq end-len (- (match-end 1) (match-beginning 1)))
         (replace-match (make-string end-len ?x)
                        nil nil nil 1))
+
       ;; If "*/" is on its own line, don't included it in the
       ;; filling region.
       (when (not end-marker)
@@ -180,13 +183,21 @@ comment."
           (backward-char 2)
           (skip-syntax-backward "-")
           (setq end (point))))
+
       ;; Let `fill-paragraph' do its thing.
       (goto-char orig-point)
       (narrow-to-region start end)
-      ;; We don't want to fill the region between START and
-      ;; START-MARKER, otherwise the filling function might delete
-      ;; some spaces there.
-      (fill-region start-marker end arg)
+      (let (para-start para-end)
+        (forward-paragraph 1)
+        (setq para-end (point))
+        (forward-paragraph -1)
+        (setq para-start (point))
+        ;; We don't want to fill the region between START and
+        ;; START-MARKER, otherwise the filling function might delete
+        ;; some spaces there.  Also, we only fill the current
+        ;; paragraph.
+        (fill-region (max start-marker para-start) (min end para-end) arg))
+
       ;; Unmask.
       (when start-marker
         (goto-char start-marker)
@@ -268,7 +279,7 @@ particular major mode.  This cannot be nil for `c-ts-common'
 statement indent functions to work.")
 
 (defvar c-ts-common-indent-type-regexp-alist nil
-  "An alist of of node type regexps.
+  "An alist of node type regexps.
 
 Each key in the alist is one of `if', `else', `do', `while',
 `for', `block', `close-bracket'.  Each value in the alist
@@ -305,6 +316,7 @@ If NODE is nil, return nil."
                        (and parent
                             (string-match-p (car regexp)
                                             (treesit-node-type parent))
+                            (treesit-node-field-name node)
                             (string-match-p (cdr regexp)
                                             (treesit-node-field-name
                                              node)))
@@ -313,7 +325,9 @@ If NODE is nil, return nil."
     nil))
 
 (defun c-ts-common-statement-offset (node parent &rest _)
-  "This anchor is used for children of a statement inside a block.
+  "Return an indent offset for a statement inside a block.
+
+Assumes the anchor is (point-min), i.e., the 0th column.
 
 This function basically counts the number of block nodes (i.e.,
 brackets) (defined by `c-ts-common-indent-block-type-regexp')
@@ -323,6 +337,9 @@ multiply that by `c-ts-common-indent-offset'.
 To support GNU style, on each block level, this function also
 checks whether the opening bracket { is on its own line, if so,
 it adds an extra level, except for the top-level.
+
+It also has special handling for bracketless statements and
+else-if statements, which see.
 
 PARENT is NODE's parent, BOL is the beginning of non-whitespace
 characters on the current line."
@@ -363,7 +380,13 @@ characters on the current line."
           (cl-incf level))
         ;; Flatten "else if" statements.
         (when (and (c-ts-common--node-is node 'else)
-                   (c-ts-common--node-is node 'if))
+                   (c-ts-common--node-is node 'if)
+                   ;; But if the "if" is on it's own line, still
+                   ;; indent a level.
+                   (not (save-excursion
+                          (goto-char (treesit-node-start node))
+                          (looking-back (rx bol (* whitespace))
+                                        (line-beginning-position)))))
           (cl-decf level)))
       ;; Go up the tree.
       (setq node (treesit-node-parent node)))

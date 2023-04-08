@@ -45,7 +45,8 @@ declaration.  A FILE with an \"ext:\" prefix is an external file.
 `check-declare' will check such files if they are found, and skip
 them without error if they are not.
 
-Optional ARGLIST specifies FN's arguments, or is t to not specify
+Optional ARGLIST specifies FN's arguments, in the same form as
+in `defun' (including the parentheses); or it is t to not specify
 FN's arguments.  An omitted ARGLIST defaults to t, not nil: a nil
 ARGLIST specifies an empty argument list, and an explicit t
 ARGLIST is a placeholder that allows supplying a later arg.
@@ -163,7 +164,7 @@ of previous VARs.
 (defmacro setq-local (&rest pairs)
   "Make each VARIABLE buffer-local and assign to it the corresponding VALUE.
 
-The arguments are variable/value pairs  For each VARIABLE in a pair,
+The arguments are variable/value pairs.  For each VARIABLE in a pair,
 make VARIABLE buffer-local and assign to it the corresponding VALUE
 of the pair.  The VARIABLEs are literal symbols and should not be quoted.
 
@@ -768,7 +769,9 @@ one is kept.  See `seq-uniq' for non-destructive operation."
 (defun delete-consecutive-dups (list &optional circular)
   "Destructively remove `equal' consecutive duplicates from LIST.
 First and last elements are considered consecutive if CIRCULAR is
-non-nil."
+non-nil.
+Of several consecutive `equal' occurrences, the one earliest in
+the list is kept."
   (let ((tail list) last)
     (while (cdr tail)
       (if (equal (car tail) (cadr tail))
@@ -804,6 +807,7 @@ TO as (+ FROM (* N INC)) or use a variable whose value was
 computed with this exact expression.  Alternatively, you can,
 of course, also replace TO with a slightly larger value
 \(or a slightly more negative value if INC is negative)."
+  (declare (side-effect-free t))
   (if (or (not to) (= from to))
       (list from)
     (or inc (setq inc 1))
@@ -825,6 +829,7 @@ of course, also replace TO with a slightly larger value
 If TREE is a cons cell, this recursively copies both its car and its cdr.
 Contrast to `copy-sequence', which copies only along the cdrs.  With second
 argument VECP, this copies vectors as well as conses."
+  (declare (side-effect-free t))
   (if (consp tree)
       (let (result)
 	(while (consp tree)
@@ -841,6 +846,7 @@ argument VECP, this copies vectors as well as conses."
 	    (aset tree i (copy-tree (aref tree i) vecp)))
 	  tree)
       tree)))
+
 
 ;;;; Various list-search functions.
 
@@ -2437,8 +2443,9 @@ If the variable `delay-mode-hooks' is non-nil, does not do anything,
 just adds the HOOKS to the list `delayed-mode-hooks'.
 Otherwise, runs hooks in the sequence: `change-major-mode-after-body-hook',
 `delayed-mode-hooks' (in reverse order), HOOKS, then runs
-`hack-local-variables', runs the hook `after-change-major-mode-hook', and
-finally evaluates the functions in `delayed-after-hook-functions' (see
+`hack-local-variables' (if the buffer is visiting a file),
+runs the hook `after-change-major-mode-hook', and finally
+evaluates the functions in `delayed-after-hook-functions' (see
 `define-derived-mode').
 
 Major mode functions should use this instead of `run-hooks' when
@@ -3227,34 +3234,40 @@ This function is used by the `interactive' code letter \"n\"."
     n))
 
 (defvar read-char-choice-use-read-key nil
-  "Prefer `read-key' when reading a character by `read-char-choice'.
-Otherwise, use the minibuffer.
+  "If non-nil, use `read-key' when reading a character by `read-char-choice'.
+Otherwise, use the minibuffer (this is the default).
 
-When using the minibuffer, the user is less constrained, and can
-use the normal commands available in the minibuffer, and can, for
-instance, switch to another buffer, do things there, and then
-switch back again to the minibuffer before entering the
-character.  This is not possible when using `read-key', but using
-`read-key' may be less confusing to some users.")
+When reading via the minibuffer, you can use the normal commands
+available in the minibuffer, and can, for instance, temporarily
+switch to another buffer, do things there, and then switch back
+to the minibuffer before entering the character.  This is not
+possible when using `read-key', but using `read-key' may be less
+confusing to some users.")
 
 (defun read-char-choice (prompt chars &optional inhibit-keyboard-quit)
-  "Read and return one of CHARS, prompting for PROMPT.
-Any input that is not one of CHARS is ignored.
+  "Read and return one of the characters in CHARS, prompting with PROMPT.
+CHARS should be a list of single characters.
+The function discards any input character that is not one of CHARS,
+and by default shows a message to the effect that it is not one of
+the expected characters.
 
-By default, the minibuffer is used to read the key
-non-modally (see `read-char-from-minibuffer').  If
+By default, this function uses the minibuffer to read the key
+non-modally (see `read-char-from-minibuffer'), and the optional
+argument INHIBIT-KEYBOARD-QUIT is ignored.  However, if
 `read-char-choice-use-read-key' is non-nil, the modal `read-key'
-function is used instead (see `read-char-choice-with-read-key')."
+function is used instead (see `read-char-choice-with-read-key'),
+and INHIBIT-KEYBOARD-QUIT is passed to it."
   (if (not read-char-choice-use-read-key)
       (read-char-from-minibuffer prompt chars)
     (read-char-choice-with-read-key prompt chars inhibit-keyboard-quit)))
 
 (defun read-char-choice-with-read-key (prompt chars &optional inhibit-keyboard-quit)
-  "Read and return one of CHARS, prompting for PROMPT.
+  "Read and return one of the characters in CHARS, prompting with PROMPT.
+CHARS should be a list of single characters.
 Any input that is not one of CHARS is ignored.
 
 If optional argument INHIBIT-KEYBOARD-QUIT is non-nil, ignore
-`keyboard-quit' events while waiting for a valid input.
+`keyboard-quit' events while waiting for valid input.
 
 If you bind the variable `help-form' to a non-nil value
 while calling this function, then pressing `help-char'
@@ -3550,22 +3563,22 @@ Also discard all previous input in the minibuffer."
     (sit-for 2)))
 
 (defvar y-or-n-p-use-read-key nil
-  "Prefer `read-key' when answering a \"y or n\" question by `y-or-n-p'.
-Otherwise, use the minibuffer.
+  "Use `read-key' when reading answers to \"y or n\" questions by `y-or-n-p'.
+Otherwise, use the `read-from-minibuffer' to read the answers.
 
-When using the minibuffer, the user is less constrained, and can
-use the normal commands available in the minibuffer, and can, for
-instance, switch to another buffer, do things there, and then
-switch back again to the minibuffer before entering the
-character.  This is not possible when using `read-key', but using
-`read-key' may be less confusing to some users.")
+When reading via the minibuffer, you can use the normal commands
+available in the minibuffer, and can, for instance, temporarily
+switch to another buffer, do things there, and then switch back
+to the minibuffer before entering the character.  This is not
+possible when using `read-key', but using `read-key' may be less
+confusing to some users.")
 
 (defvar from--tty-menu-p nil
   "Non-nil means the current command was invoked from a TTY menu.")
 (defun use-dialog-box-p ()
-  "Say whether the current command should prompt the user via a dialog box."
+  "Return non-nil if the current command should prompt the user via a dialog box."
   (and last-input-event                 ; not during startup
-       (or (listp last-nonmenu-event)   ; invoked by a mouse event
+       (or (consp last-nonmenu-event)   ; invoked by a mouse event
            from--tty-menu-p)            ; invoked via TTY menu
        use-dialog-box))
 
@@ -3990,6 +4003,7 @@ to other portions of the buffer, use `without-restriction' with the
 same LABEL argument.
 
 \(fn START END [:label LABEL] BODY)"
+  (declare (indent 0) (debug t))
   (if (eq (car rest) :label)
       `(internal--with-restriction ,start ,end (lambda () ,@(cddr rest))
                                  ,(cadr rest))
@@ -4012,6 +4026,7 @@ restrictions set by `with-restriction' with the same LABEL argument
 are lifted.
 
 \(fn [:label LABEL] BODY)"
+  (declare (indent 0) (debug t))
   (if (eq (car rest) :label)
       `(internal--without-restriction (lambda () ,@(cddr rest))
                                     ,(cadr rest))
@@ -5239,11 +5254,13 @@ wherever possible, since it is slow."
 (defsubst looking-at-p (regexp)
   "\
 Same as `looking-at' except this function does not change the match data."
+  (declare (side-effect-free t))
   (looking-at regexp t))
 
 (defsubst string-match-p (regexp string &optional start)
   "\
 Same as `string-match' except this function does not change the match data."
+  (declare (side-effect-free t))
   (string-match regexp string start t))
 
 (defun subregexp-context-p (regexp pos &optional start)
@@ -5514,14 +5531,14 @@ Upper-case and lower-case letters are treated as equal.
 Unibyte strings are converted to multibyte for comparison.
 
 See also `string-equal'."
-  (declare (pure t) (side-effect-free t))
+  (declare (side-effect-free t))
   (eq t (compare-strings string1 0 nil string2 0 nil t)))
 
 (defun string-prefix-p (prefix string &optional ignore-case)
   "Return non-nil if PREFIX is a prefix of STRING.
 If IGNORE-CASE is non-nil, the comparison is done without paying attention
 to case differences."
-  (declare (pure t) (side-effect-free t))
+  (declare (side-effect-free t))
   (let ((prefix-length (length prefix)))
     (if (> prefix-length (length string)) nil
       (eq t (compare-strings prefix 0 prefix-length string
@@ -5531,7 +5548,7 @@ to case differences."
   "Return non-nil if SUFFIX is a suffix of STRING.
 If IGNORE-CASE is non-nil, the comparison is done without paying
 attention to case differences."
-  (declare (pure t) (side-effect-free t))
+  (declare (side-effect-free t))
   (let ((start-pos (- (length string) (length suffix))))
     (and (>= start-pos 0)
          (eq t (compare-strings suffix nil nil
@@ -5841,6 +5858,7 @@ integer that encodes the corresponding syntax class.  See Info
 node `(elisp)Syntax Table Internals' for a list of codes.
 
 If SYNTAX is nil, return nil."
+  (declare (pure t) (side-effect-free t))
   (and syntax (logand (car syntax) 65535)))
 
 ;; Utility motion commands
@@ -6691,6 +6709,7 @@ Note that a version specified by the list (1) is equal to (1 0),
 \(1 0 0), (1 0 0 0), etc.  That is, the trailing zeros are insignificant.
 Also, a version given by the list (1) is higher than (1 -1), which in
 turn is higher than (1 -2), which is higher than (1 -3)."
+  (declare (pure t) (side-effect-free t))
   (while (and l1 l2 (= (car l1) (car l2)))
     (setq l1 (cdr l1)
 	  l2 (cdr l2)))
@@ -6712,6 +6731,7 @@ Note that a version specified by the list (1) is equal to (1 0),
 \(1 0 0), (1 0 0 0), etc.  That is, the trailing zeros are insignificant.
 Also, a version given by the list (1) is higher than (1 -1), which in
 turn is higher than (1 -2), which is higher than (1 -3)."
+  (declare (pure t) (side-effect-free t))
   (while (and l1 l2 (= (car l1) (car l2)))
     (setq l1 (cdr l1)
 	  l2 (cdr l2)))
@@ -6733,6 +6753,7 @@ Note that integer list (1) is equal to (1 0), (1 0 0), (1 0 0 0),
 etc.  That is, the trailing zeroes are insignificant.  Also, integer
 list (1) is greater than (1 -1) which is greater than (1 -2)
 which is greater than (1 -3)."
+  (declare (pure t) (side-effect-free t))
   (while (and l1 l2 (= (car l1) (car l2)))
     (setq l1 (cdr l1)
 	  l2 (cdr l2)))
@@ -6750,6 +6771,7 @@ which is greater than (1 -3)."
   "Return the first non-zero element of LST, which is a list of integers.
 
 If all LST elements are zeros or LST is nil, return zero."
+  (declare (pure t) (side-effect-free t))
   (while (and lst (zerop (car lst)))
     (setq lst (cdr lst)))
   (if lst
@@ -6916,6 +6938,7 @@ REGEXP defaults to \"[ \\t\\n\\r]+\"."
   "Trim STRING of trailing string matching REGEXP.
 
 REGEXP defaults to  \"[ \\t\\n\\r]+\"."
+  (declare (side-effect-free t))
   (let ((i (string-match-p (concat "\\(?:" (or regexp "[ \t\n\r]+") "\\)\\'")
                            string)))
     (if i (substring string 0 i) string)))
@@ -6987,6 +7010,7 @@ sentence (see Info node `(elisp) Documentation Tips')."
   "Return OBJECT as a list.
 If OBJECT is already a list, return OBJECT itself.  If it's
 not a list, return a one-element list containing OBJECT."
+  (declare (side-effect-free error-free))
   (if (listp object)
       object
     (list object)))
@@ -7002,27 +7026,17 @@ string will be displayed only if BODY takes longer than TIMEOUT seconds.
                                  (lambda ()
                                    ,@body)))
 
-(defun function-alias-p (func &optional noerror)
+(defun function-alias-p (func &optional _noerror)
   "Return nil if FUNC is not a function alias.
-If FUNC is a function alias, return the function alias chain.
-
-If the function alias chain contains loops, an error will be
-signaled.  If NOERROR, the non-loop parts of the chain is returned."
-  (declare (side-effect-free t))
-  (let ((chain nil)
-        (orig-func func))
-    (nreverse
-     (catch 'loop
-       (while (and (symbolp func)
-                   (setq func (symbol-function func))
-                   (symbolp func))
-         (when (or (memq func chain)
-                   (eq func orig-func))
-           (if noerror
-               (throw 'loop chain)
-             (signal 'cyclic-function-indirection (list orig-func))))
-         (push func chain))
-       chain))))
+If FUNC is a function alias, return the function alias chain."
+  (declare (advertised-calling-convention (func) "30.1")
+           (side-effect-free error-free))
+  (let ((chain nil))
+    (while (and (symbolp func)
+                (setq func (symbol-function func))
+                (symbolp func))
+      (push func chain))
+    (nreverse chain)))
 
 (defun readablep (object)
   "Say whether OBJECT has a readable syntax.
@@ -7072,6 +7086,7 @@ is inserted before adjusting the number of empty lines."
 If OMIT-NULLS, empty lines will be removed from the results.
 If KEEP-NEWLINES, don't strip trailing newlines from the result
 lines."
+  (declare (side-effect-free t))
   (if (equal string "")
       (if omit-nulls
           nil
@@ -7106,7 +7121,7 @@ CONDITION is either:
 - the symbol t, to always match,
 - the symbol nil, which never matches,
 - a regular expression, to match a buffer name,
-- a predicate function that takes a buffer object and ARG as
+- a predicate function that takes BUFFER-OR-NAME and ARG as
   arguments, and returns non-nil if the buffer matches,
 - a cons-cell, where the car describes how to interpret the cdr.
   The car can be one of the following:
@@ -7132,8 +7147,8 @@ CONDITION is either:
                        (string-match-p condition (buffer-name buffer)))
                       ((pred functionp)
                        (if (eq 1 (cdr (func-arity condition)))
-                           (funcall condition buffer)
-                         (funcall condition buffer arg)))
+                           (funcall condition buffer-or-name)
+                         (funcall condition buffer-or-name arg)))
                       (`(major-mode . ,mode)
                        (eq
                         (buffer-local-value 'major-mode buffer)

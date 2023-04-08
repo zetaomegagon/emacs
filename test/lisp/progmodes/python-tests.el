@@ -189,6 +189,14 @@ default to `point-min' and `point-max' respectively."
                            (overlay-end overlay))))
       (buffer-substring-no-properties (point-min) (point-max)))))
 
+(defun python-tests-should-not-move (func &rest args)
+  "Assert that point does not move while calling FUNC with ARGS.
+Returns the value returned by FUNC."
+  (let ((pos (point))
+        (ret (apply func args)))
+    (should (= pos (point)))
+    ret))
+
 (defun python-virt-bin (&optional virt-root)
   "Return the virtualenv bin dir, starting from VIRT-ROOT.
 If nil, VIRT-ROOT defaults to `python-shell-virtualenv-root'.
@@ -246,6 +254,27 @@ aliqua."
 
 
 ;;; Font-lock and syntax
+
+(ert-deftest python-syntax-context-1 ()
+  (python-tests-with-temp-buffer
+   "
+# Comment
+s = 'Single Quoted String'
+t = '''Triple Quoted String'''
+p = (1 + 2)
+"
+   (python-tests-look-at "Comment")
+   (should (= (python-syntax-context 'comment) (pos-bol)))
+   (python-tests-look-at "Single")
+   (should (= (python-syntax-context 'string) (1- (point))))
+   (should (= (python-syntax-context 'single-quoted-string) (1- (point))))
+   (should-not (python-syntax-context 'triple-quoted-string))
+   (python-tests-look-at "Triple")
+   (should (= (python-syntax-context 'string) (1- (point))))
+   (should-not (python-syntax-context 'single-quoted-string))
+   (should (= (python-syntax-context 'triple-quoted-string) (1- (point))))
+   (python-tests-look-at "1 + 2")
+   (should (= (python-syntax-context 'paren) (1- (point))))))
 
 (ert-deftest python-syntax-after-python-backspace ()
   ;; `python-indent-dedent-line-backspace' garbles syntax
@@ -1650,6 +1679,21 @@ a == 4):
    (python-indent-line t)
    (should (= (python-indent-calculate-indentation t) 6))))
 
+(ert-deftest python-indent-dedenters-9 ()
+  "Test de-indentation for the case keyword."
+  (python-tests-with-temp-buffer
+   "
+match a:
+    case 1:
+        print(1)
+        case 2
+"
+   (python-tests-look-at "case 2")
+   (should (eq (car (python-indent-context)) :at-dedenter-block-start))
+   (should (= (python-indent-calculate-indentation) 4))
+   (python-indent-line t)
+   (should (= (python-indent-calculate-indentation t) 4))))
+
 (ert-deftest python-indent-inside-string-1 ()
   "Test indentation for strings."
   (python-tests-with-temp-buffer
@@ -1974,6 +2018,32 @@ match foo:
    (should (eq (car (python-indent-context)) :after-block-start))
    (should (= (python-indent-calculate-indentation) 8))))
 
+(ert-deftest python-indent-after-re-match ()
+  "Test BUG 62031 regression."
+  (python-tests-with-temp-buffer
+   "
+def test_re(string):
+    if re.match('^[a-c]+$', string):
+        print('yes')
+    else:
+    "
+   (python-tests-look-at "else:")
+   (should (= (python-indent-calculate-indentation) 4))))
+
+(ert-deftest python-indent-after-bare-match ()
+  "Test BUG 62031 regression."
+  (python-tests-with-temp-buffer
+   "
+from re import match
+
+def test_re(string):
+    if match('^[a-c]+$', string):
+        print('yes')
+    else:
+    "
+   (python-tests-look-at "else:")
+   (should (= (python-indent-calculate-indentation) 4))))
+
 
 ;;; Filling
 
@@ -2002,6 +2072,54 @@ this is a test this is a test this is a test this is a test this is a test this 
    (search-forward "test.")
    (fill-paragraph)
    (should (= (current-indentation) 0))))
+
+(ert-deftest python-fill-paragraph-single-quoted-string-1 ()
+  "Single quoted string should not be filled."
+  (let ((contents "
+s = 'abc def ghi jkl mno pqr stu vwx yz'
+")
+        (fill-column 20))
+    (python-tests-with-temp-buffer
+     contents
+     (python-tests-look-at "abc")
+     (fill-paragraph)
+     (should (string= (buffer-substring-no-properties (point-min) (point-max))
+                      contents)))))
+
+(ert-deftest python-fill-paragraph-single-quoted-string-2 ()
+  "Ensure no fill is performed after the end of the single quoted string."
+  (let ((contents "
+s1 = 'abc'
+s2 = 'def'
+"))
+    (python-tests-with-temp-buffer
+     contents
+     (python-tests-look-at "abc")
+     (fill-paragraph)
+     (should (string= (buffer-substring-no-properties (point-min) (point-max))
+                      contents)))))
+
+(ert-deftest python-fill-paragraph-triple-quoted-string-1 ()
+  "Triple quoted string should be filled."
+  (let ((contents "
+s = '''abc def ghi jkl mno pqr stu vwx yz'''
+")
+        (expected "
+s = '''abc def ghi
+jkl mno pqr stu vwx
+yz'''
+")
+        (fill-column 20))
+    (dolist (look-at '("'''abc" "z'''"))
+      (dolist (offset '(0 1 2 3))
+        (python-tests-with-temp-buffer
+         contents
+         (python-tests-look-at look-at)
+         (forward-char offset)
+         (fill-paragraph)
+         (should (string=
+                  (buffer-substring-no-properties (point-min) (point-max))
+                  expected)))))))
 
 
 ;;; Mark
@@ -2934,6 +3052,36 @@ string
   (python-tests-with-temp-buffer
    "'\n''\n"
    (python-nav-end-of-statement)))
+
+(ert-deftest python-nav-end-of-statement-3 ()
+  "Test unmatched quotes (Bug#58780)."
+  (python-tests-with-temp-buffer
+   "
+' \"\"\"
+v = 1
+"
+   (python-tests-look-at "v =")
+   (should (= (save-excursion
+                (python-nav-end-of-statement)
+                (point))
+              (save-excursion
+                (point-max))))))
+
+(ert-deftest python-nav-end-of-statement-4 ()
+  (python-tests-with-temp-buffer
+   "
+abc = 'a\\
+b\\
+c'
+d = '''d'''
+"
+   (python-tests-look-at "b\\")
+   (should (= (save-excursion
+                (python-nav-end-of-statement)
+                (point))
+              (save-excursion
+                (python-tests-look-at "c'")
+                (pos-eol))))))
 
 (ert-deftest python-nav-forward-statement-1 ()
   (python-tests-with-temp-buffer
@@ -4213,7 +4361,8 @@ class Bar(models.Model):
     pass
 "
    (should (string= (buffer-string)
-                    (python-shell-buffer-substring (point-min) (point-max))))))
+                    (python-tests-should-not-move
+                     #'python-shell-buffer-substring (point-min) (point-max))))))
 
 (ert-deftest python-shell-buffer-substring-2 ()
   "Main block should be removed if NOMAIN is non-nil."
@@ -4229,7 +4378,8 @@ if __name__ == \"__main__\":
     foo = Foo()
     print (foo)
 "
-   (should (string= (python-shell-buffer-substring (point-min) (point-max) t)
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring (point-min) (point-max) t)
                     "
 class Foo(models.Model):
     pass
@@ -4256,7 +4406,8 @@ if __name__ == \"__main__\":
 class Bar(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring (point-min) (point-max) t)
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring (point-min) (point-max) t)
                     "
 class Foo(models.Model):
     pass
@@ -4284,7 +4435,8 @@ if __name__ == \"__main__\":
 class Bar(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "class Foo(models.Model):")
                      (progn (python-nav-forward-sexp) (point)))
                     "# -*- coding: latin-1 -*-
@@ -4307,7 +4459,8 @@ if __name__ == \"__main__\":
 class Bar(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "class Bar(models.Model):")
                      (progn (python-nav-forward-sexp) (point)))
                     "# -*- coding: latin-1 -*-
@@ -4338,7 +4491,8 @@ if __name__ == \"__main__\":
 class Bar(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "# coding: latin-1")
                      (python-tests-look-at "if __name__ == \"__main__\":"))
                     "# -*- coding: latin-1 -*-
@@ -4365,7 +4519,8 @@ if __name__ == \"__main__\":
 class Bar(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "# coding: latin-1")
                      (python-tests-look-at "if __name__ == \"__main__\":"))
                     "# -*- coding: utf-8 -*-
@@ -4385,7 +4540,8 @@ class Foo(models.Model):
 class Foo(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring (point-min) (point-max))
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring (point-min) (point-max))
                     "# coding: utf-8
 
 
@@ -4404,7 +4560,8 @@ class Foo(models.Model):
 class Bar(models.Model):
     pass
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (point-min)
                      (python-tests-look-at "class Bar(models.Model):"))
                     "# coding: utf-8
@@ -4421,7 +4578,8 @@ class Foo(models.Model):
 def foo():
     print ('a')
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "print ('a')")
                      (point-max))
                     "# -*- coding: utf-8 -*-\nif True:\n    print ('a')\n\n"))))
@@ -4433,7 +4591,8 @@ def foo():
 def foo():
     print ('a')
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (progn
                        (python-tests-look-at "print ('a')")
                        (backward-char 1)
@@ -4451,7 +4610,8 @@ def foo():
 
     print ('a')
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "# Whitespace")
                      (point-max))
                     "# -*- coding: utf-8 -*-\n\nif True:\n        # Whitespace\n\n    print ('a')\n\n"))))
@@ -4463,7 +4623,8 @@ def foo():
 def foo():
     a = 1
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "a = 1")
                      (pos-eol))
                     "# -*- coding: utf-8 -*-\n\na = 1"))))
@@ -4476,7 +4637,8 @@ def foo():
     a = \"\"\"Some
     string\"\"\"
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "a = \"\"\"Some")
                      (pos-eol 2))
                     "# -*- coding: utf-8 -*-\n\na = \"\"\"Some\n    string\"\"\""))))
@@ -4488,7 +4650,8 @@ def foo():
 def foo():
     a = 1
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "    a = 1")
                      (python-tests-look-at " = 1"))
                     "# -*- coding: utf-8 -*-\n\na"))))
@@ -4500,7 +4663,8 @@ def foo():
 def foo():
     a = 1
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "1")
                      (1+ (point)))
                     "# -*- coding: utf-8 -*-\n\n1"))))
@@ -4515,7 +4679,8 @@ def foo():
     b = 2
 \"\"\"
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "a = 1")
                      (python-tests-look-at "\"\"\""))
                     "# -*- coding: utf-8 -*-\n\nif True:\n    a = 1\n    b = 2\n\n"))))
@@ -4525,7 +4690,8 @@ def foo():
   (python-tests-with-temp-buffer
    "s = 'test'
 "
-   (should (string= (python-shell-buffer-substring
+   (should (string= (python-tests-should-not-move
+                     #'python-shell-buffer-substring
                      (python-tests-look-at "'test'")
                      (pos-eol))
                     "'test'"))))
@@ -5183,6 +5349,20 @@ def decoratorFunctionWithArguments(arg1, arg2, arg3):
    (should (string= (python-info-current-defun t)
                     "def decoratorFunctionWithArguments"))))
 
+(ert-deftest python-info-current-defun-4 ()
+  "Ensure unmatched quotes do not cause hang (Bug#58780)."
+  (python-tests-with-temp-buffer
+   "
+def func():
+    ' \"\"\"
+    v = 1
+"
+   (python-tests-look-at "v = 1")
+   (should (string= (python-info-current-defun)
+                    "func"))
+   (should (string= (python-info-current-defun t)
+                    "def func"))))
+
 (ert-deftest python-info-current-symbol-1 ()
   (python-tests-with-temp-buffer
    "
@@ -5760,6 +5940,26 @@ def func():
      (equal (list (python-tests-look-at "if (" -1 t))
             (python-info-dedenter-opening-block-positions)))))
 
+(ert-deftest python-info-dedenter-opening-block-positions-7 ()
+  "Test case blocks."
+  (python-tests-with-temp-buffer
+   "
+match a:
+    case 1:
+        match b:
+            case 2:
+                something()
+            case 3:
+"
+   (python-tests-look-at "case 1:")
+   (should-not (python-info-dedenter-opening-block-positions))
+   (python-tests-look-at "case 2:")
+   (should-not (python-info-dedenter-opening-block-positions))
+   (python-tests-look-at "case 3:")
+   (equal (list (python-tests-look-at "case 2:" -1)
+                (python-tests-look-at "case 1:" -1 t))
+            (python-info-dedenter-opening-block-positions))))
+
 (ert-deftest python-info-dedenter-opening-block-message-1 ()
   "Test dedenters inside strings are ignored."
   (python-tests-with-temp-buffer
@@ -5944,6 +6144,24 @@ elif b:
                  (back-to-indentation)
                  (point))
                (python-info-dedenter-statement-p)))))
+
+(ert-deftest python-info-dedenter-statement-p-6 ()
+  "Test case keyword."
+  (python-tests-with-temp-buffer
+      "
+match a:  # Comment
+    case 1:
+        match b:
+            case 2:
+                something()
+            case 3:
+"
+    (python-tests-look-at "case 1:")
+    (should-not (python-info-dedenter-statement-p))
+    (python-tests-look-at "case 2:")
+    (should-not (python-info-dedenter-statement-p))
+    (python-tests-look-at "case 3:")
+    (should (= (point) (python-info-dedenter-statement-p)))))
 
 (ert-deftest python-info-line-ends-backslash-p-1 ()
   (python-tests-with-temp-buffer
@@ -6379,6 +6597,56 @@ class Class:
    (should (python-info-docstring-p))
    (python-tests-look-at "'''Not a method docstring.'''")
    (should (not (python-info-docstring-p)))))
+
+(ert-deftest python-info-triple-quoted-string-p-1 ()
+  "Test triple quoted string."
+  (python-tests-with-temp-buffer
+   "
+t = '''Triple'''
+"
+   (python-tests-look-at " '''Triple")
+   (should-not
+    (python-tests-should-not-move
+     #'python-info-triple-quoted-string-p))
+   (forward-char)
+   (let ((start-pos (+ (point) 2))
+         (eol (pos-eol)))
+     (while (< (point) eol)
+       (should (= (python-tests-should-not-move
+                   #'python-info-triple-quoted-string-p)
+                  start-pos))
+       (forward-char)))
+   (dolist (pos `(,(point) ,(point-min) ,(point-max)))
+     (goto-char pos)
+     (should-not
+      (python-tests-should-not-move
+       #'python-info-triple-quoted-string-p)))))
+
+(ert-deftest python-info-triple-quoted-string-p-2 ()
+  "Test empty triple quoted string."
+  (python-tests-with-temp-buffer
+   "
+e = ''''''
+"
+   (python-tests-look-at "''''''")
+   (let ((start-pos (+ (point) 2))
+         (eol (pos-eol)))
+     (while (< (point) eol)
+       (should (= (python-tests-should-not-move
+                   #'python-info-triple-quoted-string-p)
+                  start-pos))
+       (forward-char)))))
+
+(ert-deftest python-info-triple-quoted-string-p-3 ()
+  "Test single quoted string."
+  (python-tests-with-temp-buffer
+   "
+s = 'Single'
+"
+   (while (< (point) (point-max))
+     (should-not (python-tests-should-not-move
+                  #'python-info-triple-quoted-string-p))
+     (forward-char))))
 
 (ert-deftest python-info-encoding-from-cookie-1 ()
   "Should detect it on first line."

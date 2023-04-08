@@ -463,7 +463,7 @@ places where they originally did not directly appear."
                                   ; first element is lambda expression
     (`(,(and `(lambda . ,_) fun) . ,args)
      ;; FIXME: it's silly to create a closure just to call it.
-     ;; Running byte-optimize-form earlier will resolve this.
+     ;; Running byte-optimize-form earlier would resolve this.
      `(funcall
        ,(cconv-convert `(function ,fun) env extend)
        ,@(mapcar (lambda (form)
@@ -477,7 +477,7 @@ places where they originally did not directly appear."
                                         branch))
                               cond-forms)))
 
-    (`(function (lambda ,args . ,body) . ,_)
+    (`(function (lambda ,args . ,body) . ,rest)
      (let* ((docstring (if (eq :documentation (car-safe (car body)))
                            (cconv-convert (cadr (pop body)) env extend)))
             (bf (if (stringp (car body)) (cdr body) body))
@@ -485,15 +485,32 @@ places where they originally did not directly appear."
                   (gethash form cconv--interactive-form-funs)))
             (wrapped (pcase if (`#'(lambda (&rest _cconv--dummy) .,_) t) (_ nil)))
             (cif (when if (cconv-convert if env extend)))
-            (_ (pcase cif
-                 ('nil nil)
-                 (`#',f
-                  (setf (cadr (car bf)) (if wrapped (nth 2 f) cif))
-                  (setq cif nil))
-                 ;; The interactive form needs special treatment, so the form
-                 ;; inside the `interactive' won't be used any further.
-                 (_ (setf (cadr (car bf)) nil))))
-            (cf (cconv--convert-function args body env form docstring)))
+            (cf nil))
+       ;; TODO: Because we need to non-destructively modify body, this code
+       ;; is particularly ugly.  This should ideally be moved to
+       ;; cconv--convert-function.
+       (pcase cif
+         ('nil (setq bf nil))
+         (`#',f
+          (pcase-let ((`((,f1 . (,_ . ,f2)) . ,f3) bf))
+            (setq bf `((,f1 . (,(if wrapped (nth 2 f) cif) . ,f2)) . ,f3)))
+          (setq cif nil))
+         ;; The interactive form needs special treatment, so the form
+         ;; inside the `interactive' won't be used any further.
+         (_ (pcase-let ((`((,f1 . (,_ . ,f2)) . ,f3) bf))
+              (setq bf `((,f1 . (nil . ,f2)) . ,f3)))))
+       (when bf
+         ;; If we modified bf, re-build body and form as
+         ;; copies with the modified bits.
+         (setq body (if (stringp (car body))
+                        (cons (car body) bf)
+                      bf)
+               form `(function (lambda ,args . ,body) . ,rest))
+         ;; Also, remove the current old entry on the alist, replacing
+         ;; it with the new one.
+         (let ((entry (pop cconv-freevars-alist)))
+           (push (cons body (cdr entry)) cconv-freevars-alist)))
+       (setq cf (cconv--convert-function args body env form docstring))
        (if (not cif)
            ;; Normal case, the interactive form needs no special treatment.
            cf
@@ -878,14 +895,14 @@ lexically and dynamically bound symbols actually used by FORM."
         (cons fvs dyns)))))
 
 (defun cconv-make-interpreted-closure (fun env)
-  ;; FIXME: I don't know what "This function is evaluated both at
-  ;; compile time and run time" is intended to mean here.
   "Make a closure for the interpreter.
-This function is evaluated both at compile time and run time.
-FUN, the closure's function, must be a lambda form.
-ENV, the closure's environment, is a mixture of lexical bindings of the form
-\(SYMBOL . VALUE) and symbols which indicate dynamic bindings of those
-symbols."
+This is intended to be called at runtime by the ELisp interpreter (when
+the code has not been compiled).
+FUN is the closure's source code, must be a lambda form.
+ENV is the runtime representation of the lexical environment,
+i.e. a list whose elements can be either plain symbols (which indicate
+that this symbol should use dynamic scoping) or pairs (SYMBOL . VALUE)
+for the lexical bindings."
   (cl-assert (eq (car-safe fun) 'lambda))
   (let ((lexvars (delq nil (mapcar #'car-safe env))))
     (if (or (null lexvars)

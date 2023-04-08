@@ -495,6 +495,42 @@ Return the compile-time value of FORM."
                     (cdr form)))
     (funcall non-toplevel-case form)))
 
+
+(defvar bytecomp--copy-tree-seen)
+
+(defun bytecomp--copy-tree-1 (tree)
+  ;; TREE must be a cons.
+  (or (gethash tree bytecomp--copy-tree-seen)
+      (let* ((next (cdr tree))
+             (result (cons nil next))
+             (copy result))
+        (while (progn
+                 (puthash tree copy bytecomp--copy-tree-seen)
+                 (let ((a (car tree)))
+                   (setcar copy (if (consp a)
+                                    (bytecomp--copy-tree-1 a)
+                                  a)))
+                 (and (consp next)
+                      (let ((tail (gethash next bytecomp--copy-tree-seen)))
+                        (if tail
+                            (progn (setcdr copy tail)
+                                   nil)
+                          (setq tree next)
+                          (setq next (cdr next))
+                          (let ((prev copy))
+                            (setq copy (cons nil next))
+                            (setcdr prev copy)
+                            t))))))
+        result)))
+
+(defun bytecomp--copy-tree (tree)
+  "Make a copy of TREE, preserving any circular structure therein.
+Only conses are traversed and duplicated, not arrays or any other structure."
+  (if (consp tree)
+      (let ((bytecomp--copy-tree-seen (make-hash-table :test #'eq)))
+        (bytecomp--copy-tree-1 tree))
+    tree))
+
 (defconst byte-compile-initial-macro-environment
   `(
     ;; (byte-compiler-options . (lambda (&rest forms)
@@ -533,7 +569,9 @@ Return the compile-time value of FORM."
                                       (macroexpand--all-toplevel
                                        form
                                        macroexpand-all-environment)))
-                                (eval expanded lexical-binding)
+                                (eval (byte-run-strip-symbol-positions
+                                       (bytecomp--copy-tree expanded))
+                                      lexical-binding)
                                 expanded)))))
     (with-suppressed-warnings
         . ,(lambda (warnings &rest body)
@@ -3416,7 +3454,7 @@ lambda-expression."
       (let* ((fn (car form))
              (handler (get fn 'byte-compile))
 	     (interactive-only
-	      (or (get fn 'interactive-only)
+	      (or (function-get fn 'interactive-only)
 		  (memq fn byte-compile-interactive-only-functions))))
         (when (memq fn '(set symbol-value run-hooks ;; add-to-list
                              add-hook remove-hook run-hook-with-args
@@ -3443,7 +3481,7 @@ lambda-expression."
 				      (format "; %s"
 					      (substitute-command-keys
 					       interactive-only)))
-				     ((and (symbolp 'interactive-only)
+				     ((and (symbolp interactive-only)
 					   (not (eq interactive-only t)))
 				      (format-message "; use `%s' instead."
                                                       interactive-only))
@@ -4590,6 +4628,7 @@ Return (TAIL VAR TEST CASES), where:
         (if switch-prefix
             (progn
               (byte-compile-cond-jump-table (cdr switch-prefix) donetag)
+              (setq clause nil)
               (setq clauses (car switch-prefix)))
           (setq clause (car clauses))
           (cond ((or (eq (car clause) t)
@@ -5079,7 +5118,10 @@ binding slots have been popped."
 (defun byte-compile-suppressed-warnings (form)
   (let ((byte-compile--suppressed-warnings
          (append (cadadr form) byte-compile--suppressed-warnings)))
-    (byte-compile-form (macroexp-progn (cddr form)))))
+    ;; Propagate the for-effect mode explicitly so that warnings about
+    ;; ignored return values can be detected and suppressed correctly.
+    (byte-compile-form (macroexp-progn (cddr form)) byte-compile--for-effect)
+    (setq byte-compile--for-effect nil)))
 
 ;; Warn about misuses of make-variable-buffer-local.
 (byte-defop-compiler-1 make-variable-buffer-local

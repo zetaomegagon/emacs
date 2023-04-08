@@ -191,7 +191,7 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
   menu)
 
 (defun emacs-lisp-byte-compile ()
-  "Byte compile the file containing the current buffer."
+  "Byte-compile the current buffer's file."
   (interactive nil emacs-lisp-mode)
   (if buffer-file-name
       (byte-compile-file buffer-file-name)
@@ -224,7 +224,8 @@ Use `emacs-lisp-byte-compile-and-load' in combination with
 native compilation."
   (interactive nil emacs-lisp-mode)
   (emacs-lisp--before-compile-buffer)
-  (load (native-compile buffer-file-name)))
+  (when-let ((out (native-compile buffer-file-name)))
+    (load out)))
 
 (defun emacs-lisp-macroexpand ()
   "Macroexpand the form after point.
@@ -943,6 +944,10 @@ namespace but with lower confidence."
                                  cl-defmethod cl-defgeneric)))
             ;; (defun FUNC (... IDENT
             'variable)
+           ((and (eql j 2)
+                 (eq j-head 'defclass))
+            ;; (defclass CLASS (... IDENT
+            'function)
            ((eq j-head 'cond)
             ;; (cond ... (... IDENT
             'variable)

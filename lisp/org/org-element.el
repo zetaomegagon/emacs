@@ -2462,7 +2462,7 @@ CDR is a plist containing `:key', `:value', `:begin', `:end',
 	  (org-element-property :value keyword)))
 
 
-;;;; Latex Environment
+;;;; LaTeX Environment
 
 (defconst org-element--latex-begin-environment
   "^[ \t]*\\\\begin{\\([A-Za-z0-9*]+\\)}"
@@ -3412,7 +3412,7 @@ CONTENTS is the contents of the object."
   (format "/%s/" contents))
 
 
-;;;; Latex Fragment
+;;;; LaTeX Fragment
 
 (defun org-element-latex-fragment-parser ()
   "Parse LaTeX fragment at point, if any.
@@ -7562,15 +7562,15 @@ the cache."
                  ;; beginning.
                  (next-element-re (pcase granularity
                                     ((or `headline
-                                         (guard (eq '(headline)
-                                                    restrict-elements)))
+                                         (guard (equal '(headline)
+                                                       restrict-elements)))
                                      (cons
                                       (org-with-limited-levels
                                        org-element-headline-re)
                                       'match-beg))
                                     (`headline+inlinetask
                                      (cons
-                                      (if (eq '(inlinetask) restrict-elements)
+                                      (if (equal '(inlinetask) restrict-elements)
                                           (org-inlinetask-outline-regexp)
                                         org-element-headline-re)
                                       'match-beg))

@@ -555,7 +555,7 @@ using a transform that puts the lock files on a local file system."
   :version "28.1")
 
 (defcustom remote-file-name-inhibit-locks nil
-  "Whether to use file locks for remote files."
+  "Whether to create file locks for remote files."
   :group 'files
   :version "28.1"
   :type 'boolean)
@@ -2775,7 +2775,11 @@ not set local variables (though we do notice a mode specified with -*-.)
 
 `enable-local-variables' is ignored if you run `normal-mode' interactively,
 or from Lisp without specifying the optional argument FIND-FILE;
-in that case, this function acts as if `enable-local-variables' were t."
+in that case, this function acts as if `enable-local-variables' were t.
+
+If invoked in a buffer that doesn't visit a file, this function
+processes only the major mode specification in the -*- line and
+the local variables spec."
   (interactive)
   (kill-all-local-variables)
   (unless delay-mode-hooks
@@ -3925,9 +3929,6 @@ variables.
 
 Uses `hack-local-variables-apply' to apply the variables.
 
-See `hack-local-variables--find-variables' for the meaning of
-HANDLE-MODE.
-
 If `enable-local-variables' or `local-enable-local-variables' is
 nil, or INHIBIT-LOCALS is non-nil, this function disregards all
 normal local variables.  If `inhibit-local-variables-regexps'
@@ -3937,7 +3938,14 @@ applied.
 
 Variables present in `permanently-enabled-local-variables' will
 still be evaluated, even if local variables are otherwise
-inhibited."
+inhibited.
+
+If HANDLE-MODE is t, the function only checks whether a \"mode:\"
+is specified, and returns the corresponding mode symbol, or nil.
+In this case, try to ignore minor-modes, and return only a major-mode.
+If HANDLE-MODE is nil, the function gathers all the specified local
+variables.  If HANDLE-MODE is neither nil nor t, the function gathers
+all the specified local variables, but ignores any settings of \"mode:\"."
   ;; We don't let inhibit-local-variables-p influence the value of
   ;; enable-local-variables, because then it would affect dir-local
   ;; variables.  We don't want to search eg tar files for file local
@@ -8406,11 +8414,14 @@ as in \"og+rX-w\"."
     num-rights))
 
 (defun file-modes-number-to-symbolic (mode &optional filetype)
-  "Return a string describing a file's MODE.
+  "Return a description of a file's MODE as a string of 10 letters and dashes.
+The returned string is like the mode description produced by \"ls -l\".
 For instance, if MODE is #o700, then it produces `-rwx------'.
-FILETYPE if provided should be a character denoting the type of file,
-such as `?d' for a directory, or `?l' for a symbolic link and will override
-the leading `-' char."
+Note that this is NOT the same as the \"chmod\" style symbolic description
+accepted by `file-modes-symbolic-to-number'.
+FILETYPE, if provided, should be a character denoting the type of file,
+such as `?d' for a directory, or `?l' for a symbolic link, and will override
+the leading `-' character."
   (string
    (or filetype
        (pcase (ash mode -12)

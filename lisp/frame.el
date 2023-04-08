@@ -239,7 +239,8 @@ that's not the whole story: see `after-focus-change-function'."
 This function runs the abnormal hook `move-frame-functions'."
   (interactive "e")
   (let ((frame (posn-window (event-start event))))
-    (run-hook-with-args 'move-frame-functions frame)))
+    (when (frame-live-p frame) ;Experience shows it can die in the meantime.
+      (run-hook-with-args 'move-frame-functions frame))))
 
 ;;;; Arrangement of frames at startup
 
@@ -873,6 +874,11 @@ the new frame according to its own rules."
   (interactive)
   (let* ((display (cdr (assq 'display parameters)))
          (w (cond
+             ;; When running in a batch session, don't create a GUI
+             ;; frame.  (Batch sessions don't set a SIGIO handler on
+             ;; relevant platforms, so attempting this would terminate
+             ;; Emacs.)
+             (noninteractive nil)
              ((assq 'terminal parameters)
               (let ((type (terminal-live-p
                            (cdr (assq 'terminal parameters)))))

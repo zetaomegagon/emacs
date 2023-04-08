@@ -5950,8 +5950,10 @@ void
 x_end_cr_clip (struct frame *f)
 {
   cairo_restore (FRAME_CR_CONTEXT (f));
+#ifdef HAVE_XDBE
   if (FRAME_X_DOUBLE_BUFFERED_P (f))
     x_mark_frame_dirty (f);
+#endif
 }
 
 void
@@ -7486,8 +7488,10 @@ x_update_end (struct frame *f)
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
 
 #ifdef USE_CAIRO
+# ifdef HAVE_XDBE
   if (!FRAME_X_DOUBLE_BUFFERED_P (f) && FRAME_CR_CONTEXT (f))
     cairo_surface_flush (cairo_get_target (FRAME_CR_CONTEXT (f)));
+# endif
 #endif
 
   /* If double buffering is disabled, finish the update here.
@@ -21141,8 +21145,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  x_flush (WINDOW_XFRAME (XWINDOW (bar->window)));
 		}
 
+#ifdef HAVE_XDBE
 	      if (f && FRAME_X_DOUBLE_BUFFERED_P (f))
 		x_drop_xrender_surfaces (f);
+#endif
 
 	      goto OTHER;
 	    }
@@ -30750,7 +30756,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   dpyinfo->invisible_cursor = make_invisible_cursor (dpyinfo);
 #if defined HAVE_XFIXES && XFIXES_VERSION >= 40000
-  dpyinfo->fixes_pointer_blanking = egetenv ("EMACS_XFIXES");
+  dpyinfo->fixes_pointer_blanking = (egetenv ("EMACS_XFIXES") != NULL);
 #endif
 
 #ifdef HAVE_X_I18N

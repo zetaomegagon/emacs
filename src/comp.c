@@ -514,6 +514,10 @@ load_gccjit_if_necessary (bool mandatory)
 #define CALL2I(fun, arg1, arg2)				\
   CALLN (Ffuncall, intern_c_string (STR (fun)), arg1, arg2)
 
+/* Like call4 but stringify and intern.  */
+#define CALL4I(fun, arg1, arg2, arg3, arg4)				\
+  CALLN (Ffuncall, intern_c_string (STR (fun)), arg1, arg2, arg3, arg4)
+
 #define DECL_BLOCK(name, func)				\
   gcc_jit_block *(name) =				\
     gcc_jit_function_new_block ((func), STR (name))
@@ -4991,8 +4995,8 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
       format_string ("%s_libgccjit_repro.c", SSDATA (ebase_name)));
 
   Lisp_Object tmp_file =
-    Fmake_temp_file_internal (base_name, make_fixnum (0),
-			      build_string (".eln.tmp"), Qnil);
+    CALL4I (make-temp-file, base_name, Qnil, build_string (".eln.tmp"), Qnil);
+
   Lisp_Object encoded_tmp_file = ENCODE_FILE (tmp_file);
 #ifdef WINDOWSNT
   encoded_tmp_file = ansi_encode_filename (encoded_tmp_file);
@@ -5905,6 +5909,14 @@ For internal use.  */);
     doc: /* Hash table recording all loaded compilation units, file -> CU.  */);
   Vcomp_loaded_comp_units_h =
     CALLN (Fmake_hash_table, QCweakness, Qvalue, QCtest, Qequal);
+
+  DEFVAR_LISP ("comp-subr-arities-h", Vcomp_subr_arities_h,
+    doc: /* Hash table recording the arity of Lisp primitives.
+This is in case they are redefined so the compiler still knows how to
+compile calls to them.
+subr-name -> arity
+For internal use.  */);
+  Vcomp_subr_arities_h = CALLN (Fmake_hash_table, QCtest, Qequal);
 
   Fprovide (intern_c_string ("native-compile"), Qnil);
 #endif /* #ifdef HAVE_NATIVE_COMP */

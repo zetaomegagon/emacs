@@ -3348,7 +3348,7 @@ s   Search for keywords                 M   Like m, but only TODO entries
 	      (`agenda
 	       (call-interactively 'org-agenda-list))
 	      (`agenda*
-	       (funcall 'org-agenda-list nil nil t))
+	       (funcall 'org-agenda-list nil nil nil t))
 	      (`alltodo
 	       (call-interactively 'org-todo-list))
 	      (`search
@@ -7330,7 +7330,7 @@ Any match of REMOVE-RE will be removed from TXT."
 			      (let ((s (org-format-outline-path (org-get-outline-path)
 								(1- (frame-width))
 								nil org-agenda-breadcrumbs-separator)))
-				(if (eq "" s) "" (concat s org-agenda-breadcrumbs-separator))))))
+				(if (equal "" s) "" (concat s org-agenda-breadcrumbs-separator))))))
 	(setq time (cond (s2 (concat
 			      (org-agenda-time-of-day-to-ampm-maybe s1)
 			      "-" (org-agenda-time-of-day-to-ampm-maybe s2)

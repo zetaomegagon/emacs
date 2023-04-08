@@ -437,7 +437,7 @@ the C sources, too."
       (setq file-name
 	    (locate-file file-name load-path '(".el" ".elc") 'readable)))
      ((and (stringp file-name)
-	   (string-match "[.]*loaddefs.el\\'" file-name))
+	   (string-match "[.]*loaddefs.elc?\\'" file-name))
       ;; An autoloaded variable or face.  Visit loaddefs.el in a buffer
       ;; and try to extract the defining file.  The following form is
       ;; from `describe-function-1' and `describe-variable'.
@@ -769,7 +769,7 @@ the C sources, too."
   (and (symbolp function)
        (not (eq (car-safe (symbol-function function)) 'macro))
        (let* ((interactive-only
-               (or (get function 'interactive-only)
+               (or (function-get function 'interactive-only)
                    (if (boundp 'byte-compile-interactive-only-functions)
                        (memq function
                              byte-compile-interactive-only-functions)))))
@@ -778,7 +778,7 @@ the C sources, too."
                    ;; Cf byte-compile-form.
                    (cond ((stringp interactive-only)
                           (format ";\n  in Lisp code %s" interactive-only))
-                         ((and (symbolp 'interactive-only)
+                         ((and (symbolp interactive-only)
                                (not (eq interactive-only t)))
                           (format-message ";\n  in Lisp code use `%s' instead."
                                           interactive-only))
@@ -996,7 +996,7 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
                                               (symbol-name function)))))))
 	 (real-def (cond
                     ((and aliased (not (subrp def)))
-                     (car (function-alias-p real-function t)))
+                     (car (function-alias-p real-function)))
 		    ((subrp def) (intern (subr-name def)))
                     (t def))))
 
@@ -1138,7 +1138,7 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
     ;; key substitution constructs, load the library.
     (and (autoloadp real-def) doc-raw
          help-enable-autoload
-         (string-match "\\([^\\]=\\|[^=]\\|\\`\\)\\\\[[{<]" doc-raw)
+         (string-match "\\([^\\]=\\|[^=]\\|\\`\\)\\\\[[{<]\\|`.*'" doc-raw)
          (autoload-do-load real-def))
 
     (help-fns--key-bindings function)

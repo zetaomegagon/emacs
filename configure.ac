@@ -2062,8 +2062,8 @@ if test "${with_ns}" != no; then
        GNUSTEP_LOCAL_HEADERS="-I${GNUSTEP_LOCAL_HEADERS}"
      test "x${GNUSTEP_LOCAL_LIBRARIES}" != "x" && \
        GNUSTEP_LOCAL_LIBRARIES="-L${GNUSTEP_LOCAL_LIBRARIES}"
-     CPPFLAGS="$CPPFLAGS -I${GNUSTEP_SYSTEM_HEADERS} ${GNUSTEP_LOCAL_HEADERS}"
-     CFLAGS="$CFLAGS -I${GNUSTEP_SYSTEM_HEADERS} ${GNUSTEP_LOCAL_HEADERS}"
+     CPPFLAGS="$CPPFLAGS -isystem ${GNUSTEP_SYSTEM_HEADERS} ${GNUSTEP_LOCAL_HEADERS}"
+     CFLAGS="$CFLAGS -isystem ${GNUSTEP_SYSTEM_HEADERS} ${GNUSTEP_LOCAL_HEADERS}"
      LDFLAGS="$LDFLAGS -L${GNUSTEP_SYSTEM_LIBRARIES} ${GNUSTEP_LOCAL_LIBRARIES}"
      LIBS_GNUSTEP="-lgnustep-gui -lgnustep-base -lobjc -lpthread"
      dnl GNUstep defines BASE_NATIVE_OBJC_EXCEPTIONS to 0 or 1.
@@ -2776,6 +2776,25 @@ if test "${with_webp}" != "no"; then
       WEBP_MODULE="libwebpdemux >= $WEBP_REQUIRED"
 
       EMACS_CHECK_MODULES([WEBP], [$WEBP_MODULE])
+
+      # WebPGetInfo is sometimes not present inside libwebpdemux, so
+      # if it does not link, also check for libwebpdecoder.
+
+      OLD_CFLAGS=$CFLAGS
+      OLD_LIBS=$LIBS
+      CFLAGS="$CFLAGS $WEBP_CFLAGS"
+      LIBS="$LIBS $WEBP_LIBS"
+
+      AC_CHECK_FUNC([WebPGetInfo], [],
+        [WEBP_MODULE="$WEBP_MODULE libwebpdecoder >= $WEBP_REQUIRED"
+	 HAVE_WEBP=no
+	 AS_UNSET([WEBP_LIBS])
+	 AS_UNSET([WEBP_CFLAGS])
+	 EMACS_CHECK_MODULES([WEBP], [$WEBP_MODULE])])
+
+      CFLAGS=$OLD_CFLAGS
+      LIBS=$OLD_LIBS
+
       AC_SUBST([WEBP_CFLAGS])
       AC_SUBST([WEBP_LIBS])
    fi
@@ -4270,8 +4289,8 @@ If you really want to try it anyway, use the configure option
 fi
 
 if test "${with_native_compilation}" != "no"; then
-    if test "${HAVE_PDUMPER}" = no; then
-       AC_MSG_ERROR(['--with-native-compilation' requires '--with-dumping=pdumper'])
+    if test "$with_unexec" = yes; then
+       AC_MSG_ERROR(['--with-native-compilation' is not compatible with unexec])
     fi
     if test "${HAVE_ZLIB}" = no; then
        AC_MSG_ERROR(['--with-native-compilation' requires zlib])
@@ -5602,7 +5621,7 @@ case $opsys in
 esac
 
 case $opsys in
-  gnu-* | solaris )
+  gnu-* | solaris | cygwin )
     dnl FIXME Can't we test if this exists (eg /proc/$$)?
     AC_DEFINE([HAVE_PROCFS], [1], [Define if you have the /proc filesystem.])
   ;;
@@ -6637,6 +6656,7 @@ AC_DEFINE_UNQUOTED([EMACS_CONFIG_FEATURES], ["${emacs_config_features}"],
   [Summary of some of the main features enabled by configure.])
 
 AS_ECHO(["  Does Emacs use -lXaw3d?                                 ${HAVE_XAW3D}
+  Does Emacs use the X Double Buffer Extension?           ${HAVE_XDBE}
   Does Emacs use -lXpm?                                   ${HAVE_XPM}
   Does Emacs use -ljpeg?                                  ${HAVE_JPEG}
   Does Emacs use -ltiff?                                  ${HAVE_TIFF}

@@ -1218,15 +1218,14 @@ boundaries."
   "Read a `define-package' form in current buffer.
 Return the pkg-desc, with desc-kind set to KIND."
   (goto-char (point-min))
-  (unwind-protect
-      (let* ((pkg-def-parsed (read (current-buffer)))
-             (pkg-desc
-              (when (eq (car pkg-def-parsed) 'define-package)
-                (apply #'package-desc-from-define
-                  (append (cdr pkg-def-parsed))))))
-        (when pkg-desc
-          (setf (package-desc-kind pkg-desc) kind)
-          pkg-desc))))
+  (let* ((pkg-def-parsed (read (current-buffer)))
+         (pkg-desc
+          (when (eq (car pkg-def-parsed) 'define-package)
+            (apply #'package-desc-from-define
+                   (append (cdr pkg-def-parsed))))))
+    (when pkg-desc
+      (setf (package-desc-kind pkg-desc) kind)
+      pkg-desc)))
 
 (declare-function tar-get-file-descriptor "tar-mode" (file))
 (declare-function tar--extract "tar-mode" (descriptor))
@@ -3083,8 +3082,7 @@ The most useful commands here are:
         `[("Package" ,package-name-column-width package-menu--name-predicate)
           ("Version" ,package-version-column-width package-menu--version-predicate)
           ("Status"  ,package-status-column-width  package-menu--status-predicate)
-          ,@(if (cdr package-archives)
-                `(("Archive" ,package-archive-column-width package-menu--archive-predicate)))
+          ("Archive" ,package-archive-column-width package-menu--archive-predicate)
           ("Description" 0 package-menu--description-predicate)])
   (setq tabulated-list-padding 2)
   (setq tabulated-list-sort-key (cons "Status" nil))
@@ -3512,9 +3510,8 @@ Return (PKG-DESC [NAME VERSION STATUS DOC])."
                  (package-desc-version pkg)))
               'font-lock-face face)
             ,(propertize status 'font-lock-face face)
-            ,@(if (cdr package-archives)
-                  (list (propertize (or (package-desc-archive pkg) "")
-                                    'font-lock-face face)))
+            ,(propertize (or (package-desc-archive pkg) "")
+                                    'font-lock-face face)
             ,(propertize (package-desc-summary pkg)
                          'font-lock-face 'package-description)])))
 

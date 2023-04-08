@@ -41,6 +41,16 @@
   :safe 'integerp
   :group 'typescript)
 
+(defface typescript-ts-jsx-tag-face
+  '((t . (:inherit font-lock-function-call-face)))
+  "Face for HTML tags like <div> and <p> in JSX."
+  :group 'typescript)
+
+(defface typescript-ts-jsx-attribute-face
+  '((t . (:inherit font-lock-constant-face)))
+  "Face for HTML attributes like name and id in JSX."
+  :group 'typescript)
+
 (defvar typescript-ts-mode--syntax-table
   (let ((table (make-syntax-table)))
     ;; Taken from the cc-langs version
@@ -69,7 +79,7 @@
   "Rules used for indentation.
 Argument LANGUAGE is either `typescript' or `tsx'."
   `((,language
-     ((parent-is "program") point-min 0)
+     ((parent-is "program") column-0 0)
      ((node-is "}") parent-bol 0)
      ((node-is ")") parent-bol 0)
      ((node-is "]") parent-bol 0)
@@ -81,6 +91,8 @@ Argument LANGUAGE is either `typescript' or `tsx'."
      ((parent-is "member_expression") parent-bol typescript-ts-mode-indent-offset)
      ((parent-is "named_imports") parent-bol typescript-ts-mode-indent-offset)
      ((parent-is "statement_block") parent-bol typescript-ts-mode-indent-offset)
+     ((parent-is "switch_case") parent-bol typescript-ts-mode-indent-offset)
+     ((parent-is "switch_default") parent-bol typescript-ts-mode-indent-offset)
      ((parent-is "type_arguments") parent-bol typescript-ts-mode-indent-offset)
      ((parent-is "variable_declarator") parent-bol typescript-ts-mode-indent-offset)
      ((parent-is "arguments") parent-bol typescript-ts-mode-indent-offset)
@@ -101,12 +113,14 @@ Argument LANGUAGE is either `typescript' or `tsx'."
          `(((match "<" "jsx_fragment") parent 0)
            ((parent-is "jsx_fragment") parent typescript-ts-mode-indent-offset)
            ((node-is "jsx_closing_element") parent 0)
-           ((node-is "jsx_element") parent typescript-ts-mode-indent-offset)
+           ((match "jsx_element" "statement") parent typescript-ts-mode-indent-offset)
            ((parent-is "jsx_element") parent typescript-ts-mode-indent-offset)
+           ((parent-is "jsx_text") parent-bol typescript-ts-mode-indent-offset)
            ((parent-is "jsx_opening_element") parent typescript-ts-mode-indent-offset)
            ((parent-is "jsx_expression") parent-bol typescript-ts-mode-indent-offset)
            ((match "/" "jsx_self_closing_element") parent 0)
            ((parent-is "jsx_self_closing_element") parent typescript-ts-mode-indent-offset)))
+     ;; FIXME(Theo): This no-node catch-all should be removed.  When is it needed?
      (no-node parent-bol 0))))
 
 (defvar typescript-ts-mode--keywords
@@ -241,16 +255,13 @@ Argument LANGUAGE is either `typescript' or `tsx'."
    :language language
    :feature 'property
    `((property_signature
-      name: (property_identifier) @font-lock-property-face)
+      name: (property_identifier) @font-lock-property-name-face)
      (public_field_definition
-      name: (property_identifier) @font-lock-property-face)
+      name: (property_identifier) @font-lock-property-name-face)
 
-     (pair key: (property_identifier) @font-lock-variable-name-face)
+     (pair key: (property_identifier) @font-lock-property-use-face)
 
-     ((shorthand_property_identifier) @font-lock-property-face)
-
-     ((shorthand_property_identifier_pattern)
-      @font-lock-property-face))
+     ((shorthand_property_identifier) @font-lock-property-use-face))
 
    :language language
    :feature 'expression
@@ -264,32 +275,36 @@ Argument LANGUAGE is either `typescript' or `tsx'."
    :feature 'function
    '((call_expression
       function:
-      [(identifier) @font-lock-function-name-face
+      [(identifier) @font-lock-function-call-face
        (member_expression
-        property: (property_identifier) @font-lock-function-name-face)]))
+        property: (property_identifier) @font-lock-function-call-face)]))
 
    :language language
    :feature 'pattern
    `((pair_pattern
-      key: (property_identifier) @font-lock-property-face)
+      key: (property_identifier) @font-lock-property-use-face
+      value: [(identifier) @font-lock-variable-name-face
+              (assignment_pattern left: (identifier) @font-lock-variable-name-face)])
 
-     (array_pattern (identifier) @font-lock-variable-name-face))
+     (array_pattern (identifier) @font-lock-variable-name-face)
+
+     ((shorthand_property_identifier_pattern) @font-lock-variable-name-face))
 
    :language language
    :feature 'jsx
    `((jsx_opening_element
       [(nested_identifier (identifier)) (identifier)]
-      @font-lock-function-name-face)
+      @typescript-ts-jsx-tag-face)
 
      (jsx_closing_element
       [(nested_identifier (identifier)) (identifier)]
-      @font-lock-function-name-face)
+      @typescript-ts-jsx-tag-face)
 
      (jsx_self_closing_element
       [(nested_identifier (identifier)) (identifier)]
-      @font-lock-function-name-face)
+      @typescript-ts-jsx-tag-face)
 
-     (jsx_attribute (property_identifier) @font-lock-constant-face))
+     (jsx_attribute (property_identifier) @typescript-ts-jsx-attribute-face))
 
    :language language
    :feature 'number
@@ -377,8 +392,9 @@ See `treesit-sexp-type-regexp' for more information.")
 
   ;; Electric
   (setq-local electric-indent-chars
-              (append "{}():;," electric-indent-chars))
-
+              (append "{}():;,<>/" electric-indent-chars))
+  (setq-local electric-layout-rules
+	      '((?\; . after) (?\{ . after) (?\} . before)))
   ;; Navigation.
   (setq-local treesit-defun-type-regexp
               (regexp-opt '("class_declaration"
@@ -432,7 +448,15 @@ See `treesit-sexp-type-regexp' for more information.")
 
 ;;;###autoload
 (define-derived-mode tsx-ts-mode typescript-ts-base-mode "TypeScript[TSX]"
-  "Major mode for editing TypeScript."
+  "Major mode for editing TSX and JSX documents.
+
+This major mode defines two additional JSX-specific faces:
+`typescript-ts-jsx-attribute-face' and
+`typescript-ts-jsx-attribute-face' that are used for HTML tags
+and attributes, respectively.
+
+The JSX-specific faces are used when `treesit-font-lock-level' is
+at least 3 (which is the default value)."
   :group 'typescript
   :syntax-table typescript-ts-mode--syntax-table
 

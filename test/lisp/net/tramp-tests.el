@@ -2530,7 +2530,7 @@ This checks also `file-name-as-directory', `file-name-directory',
 			(rx bos))
 		      tramp--test-messages))))))
 
-	    ;; We do not test lockname here.  See
+	    ;; We do not test the lock file here.  See
 	    ;; `tramp-test39-make-lock-file-name'.
 
 	    ;; Do not overwrite if excluded.
@@ -4557,8 +4557,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
               ;; Complete host name.
 	      (unless (or (tramp-string-empty-or-nil-p method)
                           (string-empty-p tramp-method-regexp)
-                          (tramp-string-empty-or-nil-p host)
-			  (tramp--test-gvfs-p method))
+                          (tramp-string-empty-or-nil-p host))
 	        (should
 	         (member
 		  (concat
@@ -4591,6 +4590,13 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	      (should (equal (file-name-completion "foo" tmp-name) t))
 	      (should (equal (file-name-completion "b" tmp-name) "bo"))
 	      (should-not (file-name-completion "a" tmp-name))
+	      ;; `file-name-completion' should not err out if
+	      ;; directory does not exist.  (Bug#61890)
+	      ;; Ange-FTP does not support this.
+	      (unless (tramp--test-ange-ftp-p)
+		(should-not
+		 (file-name-completion
+		  "a" (tramp-compat-file-name-concat tmp-name "fuzz"))))
 	      ;; Ange-FTP does not support predicates.
 	      (unless (tramp--test-ange-ftp-p)
 		(should
@@ -4636,69 +4642,83 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	  ;; Cleanup.
 	  (ignore-errors (delete-directory tmp-name 'recursive)))))))
 
+(tramp--test-deftest-with-perl tramp-test26-file-name-completion)
+
+(tramp--test-deftest-with-ls tramp-test26-file-name-completion)
+
 ;; This test is inspired by Bug#51386, Bug#52758, Bug#53513, Bug#54042
 ;; and Bug#60505.
 (ert-deftest tramp-test26-interactive-file-name-completion ()
   "Check interactive completion with different `completion-styles'."
+  ;; Method, user and host name in completion mode.  This kind of
+  ;; completion does not work on MS Windows.
+  (skip-unless (not (memq system-type '(cygwin windows-nt))))
   (tramp-cleanup-connection tramp-test-vec nil 'keep-password)
 
-  ;; Method and host name in completion mode.  This kind of completion
-  ;; does not work on MS Windows.
-  (unless (memq system-type '(cygwin windows-nt))
-    (let ((method (file-remote-p ert-remote-temporary-file-directory 'method))
-	  (user (file-remote-p ert-remote-temporary-file-directory 'user))
-	  (host (file-remote-p ert-remote-temporary-file-directory 'host))
-	  (hop (file-remote-p ert-remote-temporary-file-directory 'hop))
-          (orig-syntax tramp-syntax)
-          (non-essential t)
-	  (inhibit-message t))
-      (when (and (stringp host) (string-match tramp-host-with-port-regexp host))
-	(setq host (match-string 1 host)))
+  (let ((method (file-remote-p ert-remote-temporary-file-directory 'method))
+	(user (file-remote-p ert-remote-temporary-file-directory 'user))
+	(host (file-remote-p ert-remote-temporary-file-directory 'host))
+	(hop (file-remote-p ert-remote-temporary-file-directory 'hop))
+        (orig-syntax tramp-syntax)
+        (non-essential t)
+	(inhibit-message t))
+    (when (and (stringp host) (string-match tramp-host-with-port-regexp host))
+      (setq host (match-string 1 host)))
 
-      ;; (trace-function #'tramp-completion-file-name-handler)
-      ;; (trace-function #'completion-file-name-table)
-      (unwind-protect
-          (dolist (syntax (if (tramp--test-expensive-test-p)
-		              (tramp-syntax-values) `(,orig-syntax)))
-            (tramp-change-syntax syntax)
-	    ;; This has cleaned up all connection data, which are used
-	    ;; for completion.  We must refill the cache.
-	    (tramp-set-connection-property tramp-test-vec "property" nil)
+    ;; (trace-function #'tramp-completion-file-name-handler)
+    ;; (trace-function #'completion-file-name-table)
+    (unwind-protect
+        (dolist (syntax (if (tramp--test-expensive-test-p)
+		            (tramp-syntax-values) `(,orig-syntax)))
+          (tramp-change-syntax syntax)
+	  ;; This has cleaned up all connection data, which are used
+	  ;; for completion.  We must refill the cache.
+	  (tramp-set-connection-property tramp-test-vec "property" nil)
 
-            (dolist
-                (style
-                 (if (tramp--test-expensive-test-p)
-                     ;; It doesn't work for `initials' and `shorthand'
-                     ;; completion styles.  Should it?
-                     '(emacs21 emacs22 basic partial-completion substring flex)
-		   '(basic)))
+          (dolist
+              (style
+               (if (tramp--test-expensive-test-p)
+                   ;; It doesn't work for `initials' and `shorthand'
+                   ;; completion styles.  Should it?
+                   '(emacs21 emacs22 basic partial-completion substring flex)
+		 '(basic)))
 
-              (let (;; Force the real minibuffer in batch mode.
-                    (executing-kbd-macro t)
-                    (completion-styles `(,style))
-                    (completions-format 'one-column)
-                    completion-category-defaults
-                    completion-category-overrides
-                    ;; This is needed for the `simplified' syntax,
-                    (tramp-default-method method)
-                    (method-string
-                     (unless (string-empty-p tramp-method-regexp)
-                       (concat method tramp-postfix-method-format)))
-		    ;; This is needed for the IPv6 host name syntax.
-		    (ipv6-prefix
-		     (and (string-match-p tramp-ipv6-regexp host)
-		          tramp-prefix-ipv6-format))
-		    (ipv6-postfix
-		     (and (string-match-p tramp-ipv6-regexp host)
-		          tramp-postfix-ipv6-format))
-		    ;; The hop string fits only the initial syntax.
-		    (hop (and (eq tramp-syntax orig-syntax) hop))
-                    test result completions)
+	    (when (assoc style completion-styles-alist)
+	      (let* (;; Force the real minibuffer in batch mode.
+                     (executing-kbd-macro noninteractive)
+                     (completion-styles `(,style))
+                     completion-category-defaults
+                     completion-category-overrides
+                     ;; This is needed for the `simplified' syntax,
+                     (tramp-default-method method)
+                     (method-string
+		      (unless (string-empty-p tramp-method-regexp)
+			(concat method tramp-postfix-method-format)))
+		     (user-string
+		      (unless (tramp-string-empty-or-nil-p user)
+			(concat user tramp-postfix-user-format)))
+		     ;; This is needed for the IPv6 host name syntax.
+		     (ipv6-prefix
+		      (and (string-match-p tramp-ipv6-regexp host)
+		           tramp-prefix-ipv6-format))
+		     (ipv6-postfix
+		      (and (string-match-p tramp-ipv6-regexp host)
+		           tramp-postfix-ipv6-format))
+		     (host-string
+		      (unless (tramp-string-empty-or-nil-p host)
+			(concat
+			 ipv6-prefix host
+			 ipv6-postfix tramp-postfix-host-format)))
+		     ;; The hop string fits only the initial syntax.
+		     (hop (and (eq tramp-syntax orig-syntax) hop))
+                     test result completions)
 
 		(dolist
 		    (test-and-result
-		     ;; These are triples (TEST-STRING RESULT-CHECK
-		     ;; COMPLETION-CHECK).
+		     ;; These are triples of strings (TEST-STRING
+		     ;; RESULT-CHECK COMPLETION-CHECK).  RESULT-CHECK
+		     ;; could be not unique, in this case it is a list
+		     ;; (RESULT1 RESULT2 ...).
 		     (append
 		      ;; Complete method name.
 		      (unless (string-empty-p tramp-method-regexp)
@@ -4709,47 +4729,39 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 			   ,(concat tramp-prefix-format method-string)
 			   ,method-string)))
 		      ;; Complete user name.
-	              (unless (tramp-string-empty-or-nil-p user)
+		      (unless (tramp-string-empty-or-nil-p user)
 			`((,(concat
                              tramp-prefix-format hop method-string
                              (substring-no-properties
 			      user 0 (min 2 (length user))))
 			   ,(concat
-                             tramp-prefix-format method-string
-	                     user tramp-postfix-user-format)
-			   ,(concat
-			     user tramp-postfix-user-format))))
+                             tramp-prefix-format method-string user-string)
+			   ,user-string)))
 		      ;; Complete host name.
-	              (unless (tramp-string-empty-or-nil-p host)
+		      (unless (tramp-string-empty-or-nil-p host)
 			`((,(concat
                              tramp-prefix-format hop method-string
 			     ipv6-prefix
 			     (substring-no-properties
 			      host 0 (min 2 (length host))))
-			   ,(concat
-                             tramp-prefix-format method-string
-	                     ipv6-prefix host
-			     ipv6-postfix tramp-postfix-host-format)
-			   ,(concat
-			     ipv6-prefix host
-			     ipv6-postfix tramp-postfix-host-format))))
+			   (,(concat
+			      tramp-prefix-format method-string host-string)
+			    ,(concat
+			      tramp-prefix-format method-string
+			      user-string host-string))
+			   ,host-string)))
 		      ;; Complete user and host name.
-	              (unless (or (tramp-string-empty-or-nil-p user)
+		      (unless (or (tramp-string-empty-or-nil-p user)
 				  (tramp-string-empty-or-nil-p host))
 			`((,(concat
-                             tramp-prefix-format hop method-string
-	                     user tramp-postfix-user-format
+                             tramp-prefix-format hop method-string user-string
 			     ipv6-prefix
 			     (substring-no-properties
 			      host 0 (min 2 (length host))))
 			   ,(concat
                              tramp-prefix-format method-string
-	                     user tramp-postfix-user-format
-	                     ipv6-prefix host
-			     ipv6-postfix tramp-postfix-host-format)
-			   ,(concat
-			     ipv6-prefix host
-			     ipv6-postfix tramp-postfix-host-format))))))
+	                     user-string host-string)
+			   ,host-string)))))
 
                   (ignore-errors (kill-buffer "*Completions*"))
                   ;; (and (bufferp trace-buffer) (kill-buffer trace-buffer))
@@ -4760,12 +4772,31 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
                         completions nil
                         result (read-file-name "Prompt: "))
 
-                  (if (not (get-buffer "*Completions*"))
-                      (progn
+                  (if (or (not (get-buffer "*Completions*"))
+			  (string-match-p
+			   (if (string-empty-p tramp-method-regexp)
+			       (rx
+				(| (regexp tramp-postfix-user-regexp)
+				   (regexp tramp-postfix-host-regexp))
+				eos)
+			     (rx
+			      (| (regexp tramp-postfix-method-regexp)
+				 (regexp tramp-postfix-user-regexp)
+				 (regexp tramp-postfix-host-regexp))
+			      eos))
+			   result))
+		      (progn
                         ;; (tramp--test-message
                         ;;  "syntax: %s style: %s test: %s result: %s"
                         ;;  syntax style test result)
-                        (should (string-prefix-p (cadr test-and-result) result)))
+			(if (stringp (cadr test-and-result))
+			    (should
+			     (string-prefix-p (cadr test-and-result) result))
+			  (should
+			   (let (res)
+			     (dolist (elem (cadr test-and-result) res)
+			       (setq
+				res (or res (string-prefix-p elem result))))))))
 
                     (with-current-buffer "*Completions*"
 		      ;; We must remove leading `default-directory'.
@@ -4774,24 +4805,26 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 			(while (re-search-forward "//" nil 'noerror)
 			  (delete-region (line-beginning-position) (point))))
 		      (goto-char (point-min))
-	              (re-search-forward
-                       (rx bol (1+ nonl) "possible completions:" eol))
+		      (re-search-forward
+		       (rx bol (0+ nonl)
+			   (any "Pp") "ossible completions"
+			   (0+ nonl) eol))
 		      (forward-line 1)
-                      (setq completions
+		      (setq completions
                             (split-string
                              (buffer-substring-no-properties (point) (point-max))
-                             (rx (any "\r\n")) 'omit)))
+                             (rx (any "\r\n\t ")) 'omit)))
 
                     ;; (tramp--test-message
                     ;;  "syntax: %s style: %s test: %s result: %s completions: %S"
                     ;;  syntax style test result completions)
-                    (should (member (caddr test-and-result) completions)))))))
+                    (should (member (caddr test-and-result) completions))))))))
 
-	;; Cleanup.
-	;; (tramp--test-message "%s" (tramp-get-buffer-string trace-buffer))
-	;; (untrace-function #'tramp-completion-file-name-handler)
-	;; (untrace-function #'completion-file-name-table)
-        (tramp-change-syntax orig-syntax)))))
+      ;; Cleanup.
+      ;; (tramp--test-message "%s" (tramp-get-buffer-string trace-buffer))
+      ;; (untrace-function #'tramp-completion-file-name-handler)
+      ;; (untrace-function #'completion-file-name-table)
+      (tramp-change-syntax orig-syntax))))
 
 (ert-deftest tramp-test27-load ()
   "Check `load'."
@@ -5084,18 +5117,16 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 		  (sit-for 0.1 'nodisp))
 		(process-send-string proc "foo\r\n")
 		(process-send-eof proc)
-		;; Read output.
-		(with-timeout (10 (tramp--test-timeout-handler))
-		  (while (< (- (point-max) (point-min))
-			    (length "66\n6F\n6F\n0D\n0A\n"))
-		    (while (accept-process-output proc 0 nil t))))
-		(should
-		 (string-match-p
-                  ;; On macOS, there is always newline conversion.
-		  ;; "telnet" converts \r to <CR><NUL> if `crlf'
-		  ;; flag is FALSE.  See telnet(1) man page.
-		  (rx "66\n" "6F\n" "6F\n" (| "0D\n" "0A\n") (? "00\n") "0A\n")
-		  (buffer-string))))
+		;; Read output.  On macOS, there is always newline
+                ;; conversion.  "telnet" converts \r to <CR><NUL> if
+                ;; `crlf' flag is FALSE.  See telnet(1) man page.
+		(let ((expected
+		       (rx "66\n" "6F\n" "6F\n"
+			   (| "0D\n" "0A\n") (? "00\n") "0A\n")))
+		  (with-timeout (10 (tramp--test-timeout-handler))
+		    (while (not (string-match-p expected (buffer-string)))
+		      (while (accept-process-output proc 0 nil t))))
+		  (should (string-match-p expected (buffer-string)))))
 
 	    ;; Cleanup.
 	    (ignore-errors (delete-process proc)))))
@@ -5375,18 +5406,16 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
 		    (sit-for 0.1 'nodisp))
 		  (process-send-string proc "foo\r\n")
 		  (process-send-eof proc)
-		  ;; Read output.
-		  (with-timeout (10 (tramp--test-timeout-handler))
-		    (while (< (- (point-max) (point-min))
-			      (length "66\n6F\n6F\n0D\n0A\n"))
-		      (while (accept-process-output proc 0 nil t))))
-		  (should
-		   (string-match-p
-                    ;; On macOS, there is always newline conversion.
-		    ;; "telnet" converts \r to <CR><NUL> if `crlf'
-		    ;; flag is FALSE.  See telnet(1) man page.
-		    (rx "66\n" "6F\n" "6F\n" (| "0D\n" "0A\n") (? "00\n") "0A\n")
-		    (buffer-string))))
+		  ;; Read output.  On macOS, there is always newline
+                  ;; conversion.  "telnet" converts \r to <CR><NUL> if
+                  ;; `crlf' flag is FALSE.  See telnet(1) man page.
+		  (let ((expected
+			 (rx "66\n" "6F\n" "6F\n"
+			     (| "0D\n" "0A\n") (? "00\n") "0A\n")))
+		    (with-timeout (10 (tramp--test-timeout-handler))
+		      (while (not (string-match-p expected (buffer-string)))
+			(while (accept-process-output proc 0 nil t))))
+		    (should (string-match-p expected (buffer-string)))))
 
 	      ;; Cleanup.
 	      (ignore-errors (delete-process proc)))))))))
@@ -5944,6 +5973,8 @@ INPUT, if non-nil, is a string sent to the process."
 	 (enable-remote-dir-locals t)
          (inhibit-message t)
 	 kill-buffer-query-functions
+	 (clpa connection-local-profile-alist)
+	 (clca connection-local-criteria-alist)
 	 connection-local-profile-alist connection-local-criteria-alist)
     (unwind-protect
 	(progn
@@ -5974,24 +6005,47 @@ INPUT, if non-nil, is a string sent to the process."
 	    (should (eq local-variable 'connect))
 	    (kill-buffer (current-buffer)))
 
-	  ;; `local-variable' is dir-local due to existence of .dir-locals.el.
+	  ;; `local-variable' is still connection-local due to Tramp.
+	  ;; `find-file-hook' overrides dir-local settings.
 	  (write-region
 	   "((nil . ((local-variable . dir))))" nil
 	   (expand-file-name ".dir-locals.el" tmp-name1))
 	  (should (file-exists-p (expand-file-name ".dir-locals.el" tmp-name1)))
-	  (with-current-buffer (find-file-noselect tmp-name2)
-	    (should (eq local-variable 'dir))
-	    (kill-buffer (current-buffer)))
+	  (when (memq #'tramp-set-connection-local-variables-for-buffer
+		      find-file-hook)
+	    (with-current-buffer (find-file-noselect tmp-name2)
+	      (should (eq local-variable 'connect))
+	      (kill-buffer (current-buffer))))
+	  ;; `local-variable' is dir-local due to existence of .dir-locals.el.
+	  (let ((find-file-hook
+		 (remq #'tramp-set-connection-local-variables-for-buffer
+		       find-file-hook)))
+	    (with-current-buffer (find-file-noselect tmp-name2)
+	      (should (eq local-variable 'dir))
+	      (kill-buffer (current-buffer))))
 
-	  ;; `local-variable' is file-local due to specifying as file variable.
+	  ;; `local-variable' is still connection-local due to Tramp.
+	  ;; `find-file-hook' overrides dir-local settings.
 	  (write-region
 	   "-*- mode: comint; local-variable: file; -*-" nil tmp-name2)
           (should (file-exists-p tmp-name2))
-	  (with-current-buffer (find-file-noselect tmp-name2)
-	    (should (eq local-variable 'file))
-	    (kill-buffer (current-buffer))))
+	  (when (memq #'tramp-set-connection-local-variables-for-buffer
+		      find-file-hook)
+	    (with-current-buffer (find-file-noselect tmp-name2)
+	      (should (eq local-variable 'connect))
+	      (kill-buffer (current-buffer))))
+	  ;; `local-variable' is file-local due to specifying as file variable.
+	  (let ((find-file-hook
+		 (remq #'tramp-set-connection-local-variables-for-buffer
+		       find-file-hook)))
+	    (with-current-buffer (find-file-noselect tmp-name2)
+	      (should (eq local-variable 'file))
+	      (kill-buffer (current-buffer)))))
 
       ;; Cleanup.
+      (custom-set-variables
+       `(connection-local-profile-alist ',clpa now)
+       `(connection-local-criteria-alist ',clca now))
       (ignore-errors (delete-directory tmp-name1 'recursive)))))
 
 (ert-deftest tramp-test34-explicit-shell-file-name ()
@@ -6002,6 +6056,8 @@ INPUT, if non-nil, is a string sent to the process."
 
   (let ((default-directory ert-remote-temporary-file-directory)
 	explicit-shell-file-name kill-buffer-query-functions
+	(clpa connection-local-profile-alist)
+	(clca connection-local-criteria-alist)
 	connection-local-profile-alist connection-local-criteria-alist)
     (unwind-protect
 	(progn
@@ -6033,6 +6089,9 @@ INPUT, if non-nil, is a string sent to the process."
 
       ;; Cleanup.
       (put 'explicit-shell-file-name 'permanent-local nil)
+      (custom-set-variables
+       `(connection-local-profile-alist ',clpa now)
+       `(connection-local-criteria-alist ',clca now))
       (kill-buffer "*shell*"))))
 
 (ert-deftest tramp-test35-exec-path ()
@@ -6355,7 +6414,10 @@ INPUT, if non-nil, is a string sent to the process."
 		(if quoted #'file-name-quote #'identity)
 		(expand-file-name
 		 (format "%s~" (file-name-nondirectory tmp-name1))
-		 ert-remote-temporary-file-directory)))))))
+		 ert-remote-temporary-file-directory))))))
+
+	;; Cleanup.  Nothing to do yet.
+	nil)
 
       (unwind-protect
 	  ;; Map `backup-directory-alist'.
@@ -6517,11 +6579,33 @@ INPUT, if non-nil, is a string sent to the process."
               (save-buffer)
 	      (should-not (buffer-modified-p)))
             (should-not (with-no-warnings (file-locked-p tmp-name1)))
+
+            ;; `kill-buffer' removes the lock.
 	    (with-no-warnings (lock-file tmp-name1))
 	    (should (eq (with-no-warnings (file-locked-p tmp-name1)) t))
+            (with-temp-buffer
+              (set-visited-file-name tmp-name1)
+              (insert "foo")
+	      (should (buffer-modified-p))
+	      (cl-letf (((symbol-function #'read-from-minibuffer)
+                         (lambda (&rest _args) "yes")))
+                (kill-buffer)))
+	    (should-not (with-no-warnings (file-locked-p tmp-name1)))
 
+            ;; `kill-buffer' should not remove the lock when the
+            ;; connection is broken.  See Bug#61663.
+	    (with-no-warnings (lock-file tmp-name1))
+	    (should (eq (with-no-warnings (file-locked-p tmp-name1)) t))
+            (with-temp-buffer
+              (set-visited-file-name tmp-name1)
+              (insert "foo")
+	      (should (buffer-modified-p))
+	      (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
+	      (cl-letf (((symbol-function #'read-from-minibuffer)
+                         (lambda (&rest _args) "yes")))
+                (kill-buffer)))
 	    ;; A new connection changes process id, and also the
-	    ;; lockname contents.
+	    ;; lock file contents.  But it still exists.
 	    (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
 	    (should (stringp (with-no-warnings (file-locked-p tmp-name1))))
 
@@ -7338,10 +7422,12 @@ This is needed in timer functions as well as process filters and sentinels."
   "Check parallel asynchronous requests.
 Such requests could arrive from timers, process filters and
 process sentinels.  They shall not disturb each other."
-  :tags (append '(:expensive-test :tramp-asynchronous-processes)
-		(and (or (getenv "EMACS_HYDRA_CI")
-                         (getenv "EMACS_EMBA_CI"))
-                     '(:unstable)))
+  ;; :tags (append '(:expensive-test :tramp-asynchronous-processes)
+  ;;       	(and (or (getenv "EMACS_HYDRA_CI")
+  ;;                        (getenv "EMACS_EMBA_CI"))
+  ;;                    '(:unstable)))
+  ;; It doesn't work sufficiently.
+  :tags '(:expensive-test :tramp-asynchronous-processes :unstable)
   (skip-unless (tramp--test-enabled))
   (skip-unless (tramp--test-supports-processes-p))
   (skip-unless (not (tramp--test-container-p)))

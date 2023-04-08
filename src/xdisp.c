@@ -3498,18 +3498,18 @@ init_iterator (struct it *it, struct window *w,
 static int
 get_narrowed_width (struct window *w)
 {
-  int fact;
   /* In a character-only terminal, only one font size is used, so we
      can use a smaller factor.  */
-  fact = EQ (Fterminal_live_p (Qnil), Qt) ? 2 : 3;
-  return fact * window_body_width (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  int fact = EQ (Fterminal_live_p (Qnil), Qt) ? 2 : 3;
+  int width = window_body_width (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  return fact * max (1, width);
 }
 
 static int
 get_narrowed_len (struct window *w)
 {
-  return get_narrowed_width (w) *
-    window_body_height (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  int height = window_body_height (w, WINDOW_BODY_IN_CANONICAL_CHARS);
+  return get_narrowed_width (w) * max (1, height);
 }
 
 ptrdiff_t
@@ -4583,7 +4583,7 @@ face_at_pos (const struct it *it, enum lface_attribute_index attr_filter)
                                       &next_stop,
                                       base_face_id, false,
                                       attr_filter);
-    } // !STRINGP (it->string))
+    } /* !STRINGP (it->string) */
 }
 
 
@@ -9609,8 +9609,8 @@ move_it_in_display_line_to (struct it *it,
 	  else
 	    line_number_pending = true;
 	}
-      /* If there's a line-/wrap-prefix, handle it.  */
-      if (it->method == GET_FROM_BUFFER)
+      /* If there's a line-/wrap-prefix, handle it, if we didn't already.  */
+      if (it->area == TEXT_AREA && !it->string_from_prefix_prop_p)
 	handle_line_prefix (it);
     }
 
@@ -18546,8 +18546,9 @@ try_scrolling (Lisp_Object window, bool just_this_one_p,
 	  start_display (&it, w, startp);
 
 	  if (arg_scroll_conservatively)
-	    amount_to_scroll = max (dy, frame_line_height
-				    * max (scroll_step, temp_scroll_step));
+	    amount_to_scroll
+	      = min (max (dy, frame_line_height),
+		     frame_line_height * arg_scroll_conservatively);
 	  else if (scroll_step || temp_scroll_step)
 	    amount_to_scroll = scroll_max;
 	  else
@@ -36517,7 +36518,7 @@ This is used for internal purposes.  */);
   Vinhibit_redisplay = Qnil;
 
   DEFVAR_LISP ("global-mode-string", Vglobal_mode_string,
-    doc: /* String (or mode line construct) included (normally) in `mode-line-format'.  */);
+    doc: /* String (or mode line construct) included (normally) in `mode-line-misc-info'.  */);
   Vglobal_mode_string = Qnil;
 
   DEFVAR_LISP ("overlay-arrow-position", Voverlay_arrow_position,

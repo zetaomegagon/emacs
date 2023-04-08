@@ -3779,8 +3779,18 @@ and exists only for compatibility reasons.
 
 ;;; Generated autoloads from progmodes/cc-vars.el
 
+(autoload 'c-string-list-p "cc-vars" "\
+Return non-nil if VAL is a list of strings.
+
+(fn VAL)")
 (put 'c-basic-offset 'safe-local-variable 'integerp)
 (put 'c-backslash-column 'safe-local-variable 'integerp)
+ (put 'c-font-lock-extra-types 'safe-local-variable #'c-string-list-p)
+ (put 'c++-font-lock-extra-types 'safe-local-variable #'c-string-list-p)
+ (put 'objc-font-lock-extra-types 'safe-local-variable #'c-string-list-p)
+ (put 'java-font-lock-extra-types 'safe-local-variable #'c-string-list-p)
+ (put 'idl-font-lock-extra-types 'safe-local-variable #'c-string-list-p)
+ (put 'pike-font-lock-extra-types 'safe-local-variable #'c-string-list-p)
 (put 'c-file-style 'safe-local-variable 'string-or-null-p)
 (register-definition-prefixes "cc-vars" '("awk-mode-hook" "c++-" "c-" "defcustom-c-stylevar" "idl-" "java-" "objc-" "pike-"))
 
@@ -7765,6 +7775,9 @@ customize `display-fill-column-indicator-column'.  You can change the
 character for the indicator setting `display-fill-column-indicator-character'.
 The globalized version is `global-display-fill-column-indicator-mode',
 which see.
+This minor mode assumes the buffer uses a fixed-pitch font; if you
+use variable-pitch fonts, the indicators on different lines might
+not appear aligned.
 See Info node `Displaying Boundaries' for details.
 
 This is a minor mode.  If called interactively, toggle the
@@ -8225,15 +8238,23 @@ Make a global mode GLOBAL-MODE corresponding to buffer-local minor MODE.
 TURN-ON is a function that will be called with no args in every buffer
 and that should try to turn MODE on if applicable for that buffer.
 
-Each of KEY VALUE is a pair of CL-style keyword arguments.  :predicate
-specifies which major modes the globalized minor mode should be switched on
-in.  As the minor mode defined by this function is always global, any
-:global keyword is ignored.  Other keywords have the same meaning as in
-`define-minor-mode', which see.  In particular, :group specifies the custom
-group.  The most useful keywords are those that are passed on to the
-`defcustom'.  It normally makes no sense to pass the :lighter or :keymap
-keywords to `define-globalized-minor-mode', since these are usually passed
-to the buffer-local version of the minor mode.
+Each of KEY VALUE is a pair of CL-style keyword arguments.
+The :predicate argument specifies in which major modes should the
+globalized minor mode be switched on.  The value should be t (meaning
+switch on the minor mode in all major modes), nil (meaning don't
+switch on in any major mode), a list of modes (meaning switch on only
+in those modes and their descendants), or a list (not MODES...),
+meaning switch on in any major mode except MODES.  The value can also
+mix all of these forms, see the info node `Defining Minor Modes' for
+details.
+As the minor mode defined by this function is always global, any
+:global keyword is ignored.
+Other keywords have the same meaning as in `define-minor-mode',
+which see.  In particular, :group specifies the custom group.
+The most useful keywords are those that are passed on to the `defcustom'.
+It normally makes no sense to pass the :lighter or :keymap keywords
+to `define-globalized-minor-mode', since these are usually passed to
+the buffer-local version of the minor mode.
 
 BODY contains code to execute each time the mode is enabled or disabled.
 It is executed after toggling the mode, and before running
@@ -9209,7 +9230,7 @@ Turn on EDT Emulation." t)
 
 ;;; Generated autoloads from progmodes/eglot.el
 
-(push (purecopy '(eglot 1 11)) package--builtin-versions)
+(push (purecopy '(eglot 1 13)) package--builtin-versions)
 (autoload 'eglot "eglot" "\
 Start LSP server in support of PROJECT's buffers under MANAGED-MAJOR-MODE.
 
@@ -9253,6 +9274,8 @@ INTERACTIVE is ignored and provided for backward compatibility.
 (autoload 'eglot-ensure "eglot" "\
 Start Eglot session for current buffer if there isn't one.")
 (put 'eglot-workspace-configuration 'safe-local-variable 'listp)
+(put 'eglot--debbugs-or-github-bug-uri 'bug-reference-url-format t)
+(defun eglot--debbugs-or-github-bug-uri nil (format (if (string= (match-string 2) "github") "https://github.com/joaotavora/eglot/issues/%s" "https://debbugs.gnu.org/%s") (match-string 3)))
 (register-definition-prefixes "eglot" '("eglot-"))
 
 
@@ -9504,6 +9527,15 @@ optional prefix argument REINIT is non-nil.
 (register-definition-prefixes "elint" '("elint-"))
 
 
+;;; Generated autoloads from progmodes/elixir-ts-mode.el
+
+(autoload 'elixir-ts-mode "elixir-ts-mode" "\
+Major mode for editing Elixir, powered by tree-sitter.
+
+(fn)" t)
+(register-definition-prefixes "elixir-ts-mode" '("elixir-ts-"))
+
+
 ;;; Generated autoloads from emacs-lisp/elp.el
 
 (autoload 'elp-instrument-function "elp" "\
@@ -9570,6 +9602,16 @@ displayed." t)
 
 ;;; Generated autoloads from eshell/em-extpipe.el
 
+(defgroup eshell-extpipe nil "\
+Native shell pipelines.
+
+This module lets you construct pipelines that use your operating
+system's shell instead of Eshell's own pipelining support.  This
+is especially relevant when executing commands on a remote
+machine using Eshell's Tramp integration: using the remote
+shell's pipelining avoids copying the data which will flow
+through the pipeline to local Emacs buffers and then right back
+again." :tag "External pipelines" :group 'eshell-module)
 (register-definition-prefixes "em-extpipe" '("eshell-"))
 
 
@@ -9580,12 +9622,12 @@ displayed." t)
 
 ;;; Generated autoloads from eshell/em-hist.el
 
-(register-definition-prefixes "em-hist" '("eshell"))
+(register-definition-prefixes "em-hist" '("em-hist-unload-function" "eshell"))
 
 
 ;;; Generated autoloads from eshell/em-ls.el
 
-(register-definition-prefixes "em-ls" '("eshell"))
+(register-definition-prefixes "em-ls" '("em-ls-unload-function" "eshell"))
 
 
 ;;; Generated autoloads from eshell/em-pred.el
@@ -9610,7 +9652,7 @@ displayed." t)
 
 ;;; Generated autoloads from eshell/em-smart.el
 
-(register-definition-prefixes "em-smart" '("eshell-"))
+(register-definition-prefixes "em-smart" '("em-smart-unload-hook" "eshell-"))
 
 
 ;;; Generated autoloads from eshell/em-term.el
@@ -10165,7 +10207,7 @@ Look at CONFIG and try to expand GROUP.
 
 ;;; Generated autoloads from erc/erc.el
 
-(push (purecopy '(erc 5 4 1)) package--builtin-versions)
+(push (purecopy '(erc 5 5)) package--builtin-versions)
 (autoload 'erc-select-read-args "erc" "\
 Prompt the user for values of nick, server, port, and password.")
 (autoload 'erc "erc" "\
@@ -10237,7 +10279,7 @@ Example usage:
 
 When present, ID should be a symbol or a string to use for naming
 the server buffer and identifying the connection unequivocally.
-See info node `(erc) Network Identifier' for details.  Like USER
+See Info node `(erc) Network Identifier' for details.  Like USER
 and CLIENT-CERTIFICATE, this parameter cannot be specified
 interactively.
 
@@ -15086,6 +15128,15 @@ Prefix arg sets default accept amount temporarily.
 (register-definition-prefixes "hashcash" '("hashcash-"))
 
 
+;;; Generated autoloads from progmodes/heex-ts-mode.el
+
+(autoload 'heex-ts-mode "heex-ts-mode" "\
+Major mode for editing HEEx, powered by tree-sitter.
+
+(fn)" t)
+(register-definition-prefixes "heex-ts-mode" '("heex-ts-"))
+
+
 ;;; Generated autoloads from help-at-pt.el
 
 (autoload 'help-at-pt-string "help-at-pt" "\
@@ -18727,7 +18778,7 @@ Major mode for editing JSON, powered by tree-sitter.
 
 ;;; Generated autoloads from jsonrpc.el
 
-(push (purecopy '(jsonrpc 1 0 16)) package--builtin-versions)
+(push (purecopy '(jsonrpc 1 0 17)) package--builtin-versions)
 (register-definition-prefixes "jsonrpc" '("jsonrpc-"))
 
 
@@ -19439,7 +19490,7 @@ If called with an optional prefix argument ARG, prompts for month and year.
 This function is suitable for execution in an init file.
 
 (fn &optional ARG)" t)
-(register-definition-prefixes "lunar" '("calendar-lunar-phases" "diary-lunar-phases" "eclipse-check" "lunar-"))
+(register-definition-prefixes "lunar" '("calendar-lunar-phases" "diary-lunar-phases" "lunar-"))
 
 
 ;;; Generated autoloads from progmodes/m4-mode.el
@@ -19532,7 +19583,7 @@ and then select the region of un-tablified names and use
 
 (fn TOP BOTTOM &optional MACRO)" t)
  (define-key ctl-x-map "q" 'kbd-macro-query)
-(register-definition-prefixes "macros" '("macro"))
+(register-definition-prefixes "macros" '("macros--insert-vector-macro"))
 
 
 ;;; Generated autoloads from mail/mail-extr.el
@@ -22415,7 +22466,7 @@ Coloring:
 
 ;;; Generated autoloads from org/org.el
 
-(push (purecopy '(org 9 6 1)) package--builtin-versions)
+(push (purecopy '(org 9 6 2)) package--builtin-versions)
 (autoload 'org-babel-do-load-languages "org" "\
 Load the languages defined in `org-babel-load-languages'.
 
@@ -23514,48 +23565,6 @@ DESC must be a `package-desc' object.
 
 (autoload 'package-vc-install-selected-packages "package-vc" "\
 Ensure packages specified in `package-vc-selected-packages' are installed." t)
-(defvar package-vc-selected-packages 'nil "\
-List of packages that must be installed.
-Each member of the list is of the form (NAME . SPEC), where NAME
-is a symbol designating the package and SPEC is one of:
-
-- nil, if any package version can be installed;
-- a version string, if that specific revision is to be installed;
-- a property list, describing a package specification.  Valid
-  key/value pairs are
-
-   `:url' (string)
-      The URL of the repository used to fetch the package source.
-
-   `:branch' (string)
-      If given, the name of the branch to checkout after cloning the directory.
-
-   `:lisp-dir' (string)
-      The repository-relative name of the directory to use for loading the Lisp
-      sources.  If not given, the value defaults to the root directory
-      of the repository.
-
-   `:main-file' (string)
-      The main file of the project, relevant to gather package metadata.
-      If not given, the assumed default is the package name with \".el\"
-      appended to it.
-
-   `:vc-backend' (symbol)
-      A symbol of the VC backend to use for cloning the package.  The
-      value ought to be a member of `vc-handled-backends'.  If omitted,
-      `vc-clone' will fall back onto the archive default or on
-      `package-vc-default-backend'.
-
-  All other keys are ignored.
-
-This user option differs from `package-selected-packages' in that
-it is meant to be specified manually.  If you want to install all
-the packages in the list, you cal also use
-`package-vc-install-selected-packages'.
-
-Note that this option will not override an existing source
-package installation or revert the checked out revision.")
-(custom-autoload 'package-vc-selected-packages "package-vc" nil)
 (autoload 'package-vc-update-all "package-vc" "\
 Attempt to update all installed VC packages." t)
 (autoload 'package-vc-update "package-vc" "\
@@ -25186,7 +25195,7 @@ Open profile FILENAME.
 
 ;;; Generated autoloads from progmodes/project.el
 
-(push (purecopy '(project 0 9 6)) package--builtin-versions)
+(push (purecopy '(project 0 9 8)) package--builtin-versions)
 (autoload 'project-current "project" "\
 Return the project instance in DIRECTORY, defaulting to `default-directory'.
 
@@ -26486,6 +26495,8 @@ usually more efficient than that of a simplified version:
              (cdr parens))))
 
 (fn STRINGS &optional PAREN)")
+(function-put 'regexp-opt 'pure 't)
+(function-put 'regexp-opt 'side-effect-free 't)
 (autoload 'regexp-opt-depth "regexp-opt" "\
 Return the depth of REGEXP.
 This means the number of non-shy regexp grouping constructs
@@ -30297,7 +30308,7 @@ Studlify-case the current buffer." t)
 (defsubst string-join (strings &optional separator) "\
 Join all STRINGS using SEPARATOR.
 Optional argument SEPARATOR must be a string, a vector, or a list of
-characters; nil stands for the empty string." (mapconcat #'identity strings separator))
+characters; nil stands for the empty string." (declare (pure t) (side-effect-free t)) (mapconcat #'identity strings separator))
 (autoload 'string-truncate-left "subr-x" "\
 If STRING is longer than LENGTH, return a truncated version.
 When truncating, \"...\" is always prepended to the string, so
@@ -30305,10 +30316,12 @@ the resulting string may be longer than the original if LENGTH is
 3 or smaller.
 
 (fn STRING LENGTH)")
+(function-put 'string-truncate-left 'pure 't)
+(function-put 'string-truncate-left 'side-effect-free 't)
 (defsubst string-blank-p (string) "\
 Check whether STRING is either empty or only whitespace.
 The following characters count as whitespace here: space, tab, newline and
-carriage return." (string-match-p "\\`[ \11\n\15]*\\'" string))
+carriage return." (declare (pure t) (side-effect-free t)) (string-match-p "\\`[ \11\n\15]*\\'" string))
 (autoload 'string-clean-whitespace "subr-x" "\
 Clean up whitespace in STRING.
 All sequences of whitespaces in STRING are collapsed into a
@@ -34220,6 +34233,10 @@ When using this command to register a new file (or files), it
 will automatically deduce which VC repository to register it
 with, using the most specific one.
 
+If VERBOSE is non-nil (interactively, the prefix argument),
+you can specify a VC backend or (for centralized VCS only)
+the revision ID or branch ID.
+
 (fn VERBOSE)" t)
 (autoload 'vc-register "vc" "\
 Register into a version control system.
@@ -34380,24 +34397,31 @@ Uses `vc-retrieve-tag' with the non-nil arg `branchp'.
 
 (fn DIR NAME)" t)
 (autoload 'vc-print-log "vc" "\
-List the change log of the current fileset in a window.
-If WORKING-REVISION is non-nil, leave point at that revision.
+Show in another window the VC change history of the current fileset.
+If WORKING-REVISION is non-nil, it should be a revision ID; position
+point in the change history buffer at that revision.
 If LIMIT is non-nil, it should be a number specifying the maximum
 number of revisions to show; the default is `vc-log-show-limit'.
 
 When called interactively with a prefix argument, prompt for
 WORKING-REVISION and LIMIT.
 
+This shows a short log (one line for each commit) if the current
+fileset includes directories and the VC backend supports that;
+otherwise it shows the detailed log of each commit, which includes
+the full log message and the author.  Additional control of the
+shown log style is available via `vc-log-short-style'.
+
 (fn &optional WORKING-REVISION LIMIT)" t)
 (autoload 'vc-print-root-log "vc" "\
-List the revision history for the current VC controlled tree in a window.
+Show in another window VC change history of the current VC controlled tree.
 If LIMIT is non-nil, it should be a number specifying the maximum
 number of revisions to show; the default is `vc-log-show-limit'.
-When called interactively with a prefix argument, prompt for LIMIT.
-When the prefix argument is a number, use it as LIMIT.
+When called interactively with a prefix argument, prompt for LIMIT, but
+if the prefix argument is a number, use it as LIMIT.
 A special case is when the prefix argument is 1: in this case
-the command asks for the ID of a revision, and shows that revision
-with its diffs (if the underlying VCS supports that).
+the command prompts for the ID of a revision, and shows that revision
+with its diffs (if the underlying VCS backend supports that).
 
 (fn &optional LIMIT REVISION)" t)
 (autoload 'vc-print-branch-log "vc" "\
@@ -34417,20 +34441,22 @@ In some version control systems REMOTE-LOCATION can be a remote branch name.
 
 (fn &optional REMOTE-LOCATION)" t)
 (autoload 'vc-log-search "vc" "\
-Search the log of changes for PATTERN.
+Search the VC log of changes for PATTERN and show log of matching changes.
 
 PATTERN is usually interpreted as a regular expression.  However, its
 exact semantics is up to the backend's log search command; some can
 only match fixed strings.
 
-Display all entries that match log messages in long format.
-With a prefix argument, ask for a command to run that will output
-log entries.
+This command displays in long format all the changes whose log messages
+match PATTERN.
+
+With a prefix argument, the command asks for a shell command to run that
+will output log entries, and displays those log entries instead.
 
 (fn PATTERN)" t)
 (autoload 'vc-log-mergebase "vc" "\
-Show a log of changes between the merge base of REV1 and REV2 revisions.
-The merge base is a common ancestor between REV1 and REV2 revisions.
+Show a log of changes between the merge base of revisions REV1 and REV2.
+The merge base is a common ancestor of revisions REV1 and REV2.
 
 (fn FILES REV1 REV2)" t)
 (autoload 'vc-region-history "vc" "\
@@ -36912,14 +36938,14 @@ If LIMIT is non-nil, then do not consider characters beyond LIMIT.
 
 ;;; Generated autoloads from progmodes/xref.el
 
-(push (purecopy '(xref 1 6 1)) package--builtin-versions)
+(push (purecopy '(xref 1 6 3)) package--builtin-versions)
 (autoload 'xref-find-backend "xref")
 (define-obsolete-function-alias 'xref-pop-marker-stack #'xref-go-back "29.1")
 (autoload 'xref-go-back "xref" "\
 Go back to the previous position in xref history.
 To undo, use \\[xref-go-forward]." t)
 (autoload 'xref-go-forward "xref" "\
-Got to the point where a previous \\[xref-go-back] was invoked." t)
+Go to the point where a previous \\[xref-go-back] was invoked." t)
 (autoload 'xref-marker-stack-empty-p "xref" "\
 Whether the xref back-history is empty.")
 (autoload 'xref-forward-history-empty-p "xref" "\

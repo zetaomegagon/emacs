@@ -2653,8 +2653,9 @@ like that of @code{frame-title-format}.  The value can also be
 avoids problems with some window managers and desktop environments,
 where a change in a frame's title (when a frame is iconified) is
 interpreted as a request to raise the frame and/or give it input
-focus.  The default is a string identical to the default value of
-@code{frame-title-format}.
+focus.  It is also useful if you want the frame's title to be the same
+no matter if the frame is iconified or not.  The default value is a
+string identical to the default value of @code{frame-title-format}.
 @end defvar
 
 @defvar multiple-frames
@@ -3576,7 +3577,7 @@ the mouse position list will be @code{nil} if the value is
 @code{drag-source}.  This is useful to determine if a frame is not
 directly visible underneath the mouse pointer.
 
-The @code{track-mouse} form causes Emacs to generate mouse motion
+The @code{track-mouse} macro causes Emacs to generate mouse motion
 events by binding the variable @code{track-mouse} to a
 non-@code{nil} value.  If that variable has the special value
 @code{dragging}, it additionally instructs the display engine to

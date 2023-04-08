@@ -1214,7 +1214,7 @@ Suffix specifications have this form:
 
 @lisp
 ([@var{LEVEL}]
- [@var{KEY}] [@var{DESCRIPTION}]
+ [@var{KEY} [@var{DESCRIPTION}]]
  @var{COMMAND}|@var{ARGUMENT} [@var{KEYWORD} @var{VALUE}]...)
 @end lisp
 
@@ -1253,8 +1253,7 @@ Any command will do; it does not need to have an object associated
 with it (as would be the case if @code{transient-define-suffix} or
 @code{transient-define-infix} were used to define it).
 
-Anonymous, dynamically defined suffix commands are also supported.
-See information about the @code{:setup-children} function in @ref{Group Specifications}.
+COMMAND can also be a @code{lambda} expression.
 
 As mentioned above, the object that is associated with a command can
 be used to set the default for certain values that otherwise have to
@@ -2566,6 +2565,20 @@ currently exist.
 @appendixsec Can I control how the popup buffer is displayed?
 
 Yes, see @code{transient-display-buffer-action} in @ref{Configuration}.
+
+@anchor{How can I copy text from the popup buffer?}
+@appendixsec How can I copy text from the popup buffer?
+
+To be able to mark text in any transient popup buffer using the mouse,
+you have to add the following binding.  Note that the region won't be
+visualized, while doing so.  After you have quit the transient popup,
+you will be able to yank it another buffer.
+
+@lisp
+(keymap-set transient-predicate-map
+            "<mouse-set-region>"
+            #'transient--do-stay)
+@end lisp
 
 @anchor{Why did some of the key bindings change?}
 @appendixsec Why did some of the key bindings change?

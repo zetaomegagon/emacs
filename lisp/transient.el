@@ -1048,26 +1048,30 @@ example, sets a variable, use `transient-define-infix' instead.
         (setq args (plist-put args :key pop)))
       (cond
        ((or (stringp car)
-            (eq (car-safe car) 'lambda))
+            (and (eq (car-safe car) 'lambda)
+                 (not (commandp car))))
         (setq args (plist-put args :description pop)))
        ((and (symbolp car)
+             (not (keywordp car))
              (not (commandp car))
              (commandp (cadr spec)))
         (setq args (plist-put args :description (macroexp-quote pop)))))
       (cond
        ((keywordp car)
-        (error "Need command, got %S" car))
+        (error "Need command, got `%s'" car))
        ((symbolp car)
         (setq args (plist-put args :command (macroexp-quote pop))))
        ((and (commandp car)
              (not (stringp car)))
         (let ((cmd pop)
-              (sym (intern (format "transient:%s:%s"
-                                   prefix
-                                   (or (plist-get args :description)
-                                       (plist-get args :key))))))
-          (defalias sym cmd)
-          (setq args (plist-put args :command (macroexp-quote sym)))))
+              (sym (intern
+                    (format "transient:%s:%s"
+                            prefix
+                            (let ((desc (plist-get args :description)))
+                              (if (and desc (or (stringp desc) (symbolp desc)))
+                                  desc
+                                (plist-get args :key)))))))
+          (setq args (plist-put args :command `(defalias ',sym ,cmd)))))
        ((or (stringp car)
             (and car (listp car)))
         (let ((arg pop))
@@ -2512,17 +2516,22 @@ prefix argument and pivot to `transient-update'."
 
 (defun transient--invalid (msg)
   (ding)
-  (message "%s: `%s' (Use `%s' to abort, `%s' for help) [%s]"
+  (message "%s: `%s' (Use `%s' to abort, `%s' for help)%s"
            msg
            (propertize (key-description (this-single-command-keys))
                        'face 'font-lock-warning-face)
            (propertize "C-g" 'face 'transient-key)
            (propertize "?"   'face 'transient-key)
-           ;; `this-command' is `transient--undefined' or similar at this
-           ;; point.  Show the command the user actually tried to invoke.
-           (propertize (symbol-name (transient--suffix-symbol
-                                     this-original-command))
-                       'face 'font-lock-warning-face))
+           ;; `this-command' is `transient-undefined' or `transient-inapt'.
+           ;; Show the command (`this-original-command') the user actually
+           ;; tried to invoke.  For an anonymous inapt command that is a
+           ;; lambda expression, which cannot be mapped to a symbol, so
+           ;; forgo displaying the command.
+           (if-let ((cmd (ignore-errors
+                           (symbol-name (transient--suffix-symbol
+                                         this-original-command)))))
+               (format " [%s]" (propertize cmd 'face 'font-lock-warning-face))
+             ""))
   (unless (and transient--transient-map
                (memq transient--transient-map overriding-terminal-local-map))
     (let ((transient--prefix (or transient--prefix 'sic)))

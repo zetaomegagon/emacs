@@ -623,7 +623,7 @@ A non-nil INTERACTIVE argument means to run the `post-self-insert-hook'."
          (beforepos (point))
          (last-command-event ?\n)
          ;; Don't auto-fill if we have a prefix argument.
-         (auto-fill-function (if arg nil auto-fill-function))
+         (inhibit-auto-fill (or inhibit-auto-fill arg))
          (arg (prefix-numeric-value arg))
          (procsym (make-symbol "newline-postproc")) ;(bug#46326)
          (postproc
@@ -937,7 +937,7 @@ column specified by the function `current-left-margin'."
 
 (defcustom read-quoted-char-radix 8
   "Radix for \\[quoted-insert] and other uses of `read-quoted-char'.
-Legitimate radix values are 8, 10 and 16."
+Supported radix values are 8, 10 and 16."
  :type '(choice (const 8) (const 10) (const 16))
  :group 'editing-basics)
 
@@ -1012,21 +1012,25 @@ any other non-digit terminates the character code and is then used as input."))
 This is useful for inserting control characters.
 With argument, insert ARG copies of the character.
 
-If the first character you type after this command is an octal digit,
-you should type a sequence of octal digits that specify a character code.
-Any nondigit terminates the sequence.  If the terminator is a RET,
-it is discarded; any other terminator is used itself as input.
+If the first character you type is an octal digit, the sequence of
+one or more octal digits you type is interpreted to specify a
+character code.  Any character that is not an octal digit terminates
+the sequence.  If the terminator is a RET, it is discarded; any
+other terminator is used itself as input and is inserted.
+
 The variable `read-quoted-char-radix' specifies the radix for this feature;
-set it to 10 or 16 to use decimal or hex instead of octal.
+set it to 10 or 16 to use decimal or hex instead of octal.  If you change
+the radix, the characters interpreted as specifying a character code
+change accordingly: 0 to 9 for decimal, 0 to F for hex.
 
 In overwrite mode, this function inserts the character anyway, and
-does not handle octal digits specially.  This means that if you use
-overwrite as your normal editing mode, you can use this function to
-insert characters when necessary.
+does not handle octal (or decimal or hex) digits specially.  This means
+that if you use overwrite mode as your normal editing mode, you can use
+this function to insert characters when necessary.
 
 In binary overwrite mode, this function does overwrite, and octal
-digits are interpreted as a character code.  This is intended to be
-useful for editing binary files."
+(or decimal or hex) digits are interpreted as a character code.  This
+is intended to be useful for editing binary files."
   (interactive "*p")
   (let* ((char
 	  ;; Avoid "obsolete" warnings for translation-table-for-input.
@@ -1088,7 +1092,8 @@ Leave one space or none, according to the context."
 
 (defun delete-horizontal-space (&optional backward-only)
   "Delete all spaces and tabs around point.
-If BACKWARD-ONLY is non-nil, delete them only before point."
+If BACKWARD-ONLY is non-nil (interactively, the prefix argument), delete
+them only before point."
   (interactive "*P")
   (delete-space--internal " \t" backward-only))
 
@@ -1114,6 +1119,7 @@ If BACKWARD-ONLY is non-nil, delete them only before point."
 
 (defun just-one-space (&optional n)
   "Delete all spaces and tabs around point, leaving one space (or N spaces).
+Interactively, N is the prefix numeric argument.
 If N is negative, delete newlines as well, leaving -N spaces.
 See also `cycle-spacing'."
   (interactive "*p")
@@ -8913,11 +8919,15 @@ unless optional argument SOFT is non-nil."
        ;; If we're not inside a comment, just try to indent.
        (t (indent-according-to-mode))))))
 
+(defvar inhibit-auto-fill nil
+  "Non-nil means to do as if `auto-fill-mode' was disabled.")
+
 (defun internal-auto-fill ()
   "The function called by `self-insert-command' to perform auto-filling."
-  (when (or (not comment-start)
-            (not comment-auto-fill-only-comments)
-            (nth 4 (syntax-ppss)))
+  (unless (or inhibit-auto-fill
+              (and comment-start
+                   comment-auto-fill-only-comments
+                   (not (nth 4 (syntax-ppss)))))
     (funcall auto-fill-function)))
 
 (defvar normal-auto-fill-function 'do-auto-fill
@@ -9102,6 +9112,13 @@ presented."
   "Toggle buffer size display in the mode line (Size Indication mode)."
   :global t :group 'mode-line)
 
+(defcustom remote-file-name-inhibit-auto-save nil
+  "When nil, `auto-save-mode' will auto-save remote files.
+Any other value means that it will not."
+  :group 'auto-save
+  :type 'boolean
+  :version "30.1")
+
 (define-minor-mode auto-save-mode
   "Toggle auto-saving in the current buffer (Auto Save mode).
 
@@ -9124,6 +9141,9 @@ For more details, see Info node `(emacs) Auto Save'."
                  (setq buffer-auto-save-file-name
                        (cond
                         ((null val) nil)
+                        ((and buffer-file-name remote-file-name-inhibit-auto-save
+                              (file-remote-p buffer-file-name))
+                         nil)
                         ((and buffer-file-name auto-save-visited-file-name
                               (not buffer-read-only))
                          buffer-file-name)
@@ -9916,7 +9936,12 @@ minibuffer, but don't quit the completions window."
       (with-current-buffer buffer
         (choose-completion-string
          choice buffer
-         (or (and completion-use-base-affixes base-affixes)
+         ;; Don't allow affixes to replace the whole buffer when not
+         ;; in the minibuffer.  Thus check for `completion-in-region-mode'
+         ;; to ignore non-nil value of `completion-use-base-affixes' set by
+         ;; `minibuffer-choose-completion'.
+         (or (and (not completion-in-region-mode)
+                  completion-use-base-affixes base-affixes)
              base-position
              ;; If all else fails, just guess.
              (list (choose-completion-guess-base-position choice)))
@@ -10832,7 +10857,8 @@ If the buffer doesn't exist, create it first."
            '((?y "yes" "kill buffer without saving")
              (?n "no" "exit without doing anything")
              (?s "save and then kill" "save the buffer and then kill it"))
-           nil nil (not use-short-answers)))))
+           nil nil (and (not use-short-answers)
+                        (not (use-dialog-box-p)))))))
     (if (equal response "no")
         nil
       (unless (equal response "yes")

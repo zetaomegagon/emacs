@@ -426,7 +426,7 @@ This variant of `rx' supports common Python named REGEXPS."
                                              (or "def" "for" "with")))
                                     symbol-end))
             (dedenter          (seq symbol-start
-                                    (or "elif" "else" "except" "finally")
+                                    (or "elif" "else" "except" "finally" "case")
                                     symbol-end))
             (block-ender       (seq symbol-start
                                     (or
@@ -511,19 +511,28 @@ This variant of `rx' supports common Python named REGEXPS."
       (''string
        `(let ((ppss (or ,syntax-ppss (syntax-ppss))))
           (and (nth 3 ppss) (nth 8 ppss))))
+      (''single-quoted-string
+       `(let ((ppss (or ,syntax-ppss (syntax-ppss))))
+          (and (characterp (nth 3 ppss)) (nth 8 ppss))))
+      (''triple-quoted-string
+       `(let ((ppss (or ,syntax-ppss (syntax-ppss))))
+          (and (eq t (nth 3 ppss)) (nth 8 ppss))))
       (''paren
        `(nth 1 (or ,syntax-ppss (syntax-ppss))))
       (_ form))))
 
 (defun python-syntax-context (type &optional syntax-ppss)
   "Return non-nil if point is on TYPE using SYNTAX-PPSS.
-TYPE can be `comment', `string' or `paren'.  It returns the start
+TYPE can be `comment', `string', `single-quoted-string',
+`triple-quoted-string' or `paren'.  It returns the start
 character address of the specified TYPE."
   (declare (compiler-macro python-syntax--context-compiler-macro))
   (let ((ppss (or syntax-ppss (syntax-ppss))))
     (pcase type
       ('comment (and (nth 4 ppss) (nth 8 ppss)))
       ('string (and (nth 3 ppss) (nth 8 ppss)))
+      ('single-quoted-string (and (characterp (nth 3 ppss)) (nth 8 ppss)))
+      ('triple-quoted-string (and (eq t (nth 3 ppss)) (nth 8 ppss)))
       ('paren (nth 1 ppss))
       (_ nil))))
 
@@ -1070,7 +1079,7 @@ fontified."
     ;; Don't highlight string prefixes like f/r/b.
     (save-excursion
       (goto-char string-beg)
-      (when (search-forward "\"" string-end t)
+      (when (re-search-forward "[\"']" string-end t)
         (setq string-beg (match-beginning 0))))
     (treesit-fontify-with-override
      string-beg string-end face override start end)))
@@ -1106,24 +1115,25 @@ fontified."
    :language 'python
    '((interpolation) @python--treesit-fontify-string-interpolation)
 
-   :feature 'definition
-   :language 'python
-   '((function_definition
-      name: (identifier) @font-lock-function-name-face)
-     (class_definition
-      name: (identifier) @font-lock-type-face))
-
-   :feature 'function
-   :language 'python
-   '((call function: (identifier) @font-lock-function-name-face)
-     (call function: (attribute
-                      attribute: (identifier) @font-lock-function-name-face)))
-
    :feature 'keyword
    :language 'python
    `([,@python--treesit-keywords] @font-lock-keyword-face
      ((identifier) @font-lock-keyword-face
       (:match "^self$" @font-lock-keyword-face)))
+
+   :feature 'definition
+   :language 'python
+   '((function_definition
+      name: (identifier) @font-lock-function-name-face)
+     (class_definition
+      name: (identifier) @font-lock-type-face)
+     (parameters (identifier) @font-lock-variable-name-face))
+
+   :feature 'function
+   :language 'python
+   '((call function: (identifier) @font-lock-function-call-face)
+     (call function: (attribute
+                      attribute: (identifier) @font-lock-function-call-face)))
 
    :feature 'builtin
    :language 'python
@@ -1146,7 +1156,7 @@ fontified."
                  @font-lock-variable-name-face)
      (assignment left: (attribute
                         attribute: (identifier)
-                        @font-lock-property-face))
+                        @font-lock-property-use-face))
      (pattern_list (identifier)
                    @font-lock-variable-name-face)
      (tuple_pattern (identifier)
@@ -1183,12 +1193,12 @@ fontified."
    :feature 'property
    :language 'python
    '((attribute
-      attribute: (identifier) @font-lock-property-face)
+      attribute: (identifier) @font-lock-property-use-face)
      (class_definition
       body: (block
              (expression_statement
               (assignment left:
-                          (identifier) @font-lock-property-face)))))
+                          (identifier) @font-lock-property-use-face)))))
 
    :feature 'operator
    :language 'python
@@ -1211,10 +1221,10 @@ fontified."
   "Check whether NODE is a variable.
 NODE's type should be \"identifier\"."
   ;; An identifier can be a function/class name, a property, or a
-  ;; variables.  This function filters out function/class names and
-  ;; properties.
+  ;; variables.  This function filters out function/class names,
+  ;; properties and method parameters.
   (pcase (treesit-node-type (treesit-node-parent node))
-    ((or "function_definition" "class_definition") nil)
+    ((or "function_definition" "class_definition" "parameters") nil)
     ("attribute"
      (pcase (treesit-node-field-name node)
        ("object" t)
@@ -2061,10 +2071,6 @@ of the statement."
                        ;; are somehow out of whack.  This has been
                        ;; observed when using `syntax-ppss' during
                        ;; narrowing.
-                       ;; It can also fail in cases where the buffer is in
-                       ;; the process of being modified, e.g. when creating
-                       ;; a string with `electric-pair-mode' disabled such
-                       ;; that there can be an unmatched single quote
                        (when (>= string-start last-string-end)
                          (goto-char string-start)
                          (if (python-syntax-context 'paren)
@@ -2075,10 +2081,16 @@ of the statement."
                            (goto-char (+ (point)
                                          (python-syntax-count-quotes
                                           (char-after (point)) (point))))
-                           (setq last-string-end
-                                 (or (re-search-forward
-                                      (rx (syntax string-delimiter)) nil t)
-                                     (goto-char (point-max)))))))
+                           (setq
+                            last-string-end
+                            (or (if (eq t (nth 3 (syntax-ppss)))
+                                    (re-search-forward
+                                     (rx (syntax string-delimiter)) nil t)
+                                  (ignore-error scan-error
+                                    (goto-char string-start)
+                                    (python-nav--lisp-forward-sexp)
+                                    (point)))
+                                (goto-char (point-max)))))))
                       ((python-syntax-context 'paren)
                        ;; The statement won't end before we've escaped
                        ;; at least one level of parenthesis.
@@ -2147,10 +2159,7 @@ backward to previous statement."
       (while (and (forward-line 1)
                   (not (eobp))
                   (or (and (> (current-indentation) block-indentation)
-                           (let ((start (point)))
-                             (python-nav-end-of-statement)
-                             ;; must move forward otherwise infinite loop
-                             (> (point) start)))
+                           (or (python-nav-end-of-statement) t))
                       (python-info-current-line-comment-p)
                       (python-info-current-line-empty-p))))
       (python-util-forward-comment -1)
@@ -3759,14 +3768,15 @@ the python shell:
      whitespaces will be removed.  Otherwise, wraps indented
      regions under an \"if True:\" block so the interpreter
      evaluates them correctly."
-  (let* ((single-p (save-restriction
-                     (narrow-to-region start end)
-                     (= (progn
-                          (goto-char start)
-                          (python-nav-beginning-of-statement))
-                        (progn
-                          (goto-char end)
-                          (python-nav-beginning-of-statement)))))
+  (let* ((single-p (save-excursion
+                     (save-restriction
+                       (narrow-to-region start end)
+                       (= (progn
+                            (goto-char start)
+                            (python-nav-beginning-of-statement))
+                          (progn
+                            (goto-char end)
+                            (python-nav-beginning-of-statement))))))
          (start (save-excursion
                   ;; If we're at the start of the expression, and if
                   ;; the region consists of a single statement, then
@@ -3785,10 +3795,11 @@ the python shell:
                         (line-beginning-position)
                       start))))
          (substring (buffer-substring-no-properties start end))
-         (starts-at-first-line-p (save-restriction
-                                   (widen)
-                                   (goto-char start)
-                                   (= (line-number-at-pos) 1)))
+         (starts-at-first-line-p (save-excursion
+                                   (save-restriction
+                                     (widen)
+                                     (goto-char start)
+                                     (= (line-number-at-pos) 1))))
          (encoding (python-info-encoding))
          (toplevel-p (zerop (save-excursion
                               (goto-char start)
@@ -4803,9 +4814,7 @@ Optional argument JUSTIFY defines if the paragraph should be justified."
      ((python-syntax-context 'comment)
       (funcall python-fill-comment-function justify))
      ;; Strings/Docstrings
-     ((save-excursion (or (python-syntax-context 'string)
-                          (equal (string-to-syntax "|")
-                                 (syntax-after (point)))))
+     ((python-info-triple-quoted-string-p)
       (funcall python-fill-string-function justify))
      ;; Decorators
      ((equal (char-after (save-excursion
@@ -4831,10 +4840,7 @@ JUSTIFY should be used (if applicable) as in `fill-paragraph'."
   (let* ((str-start-pos
           (set-marker
            (make-marker)
-           (or (python-syntax-context 'string)
-               (and (equal (string-to-syntax "|")
-                           (syntax-after (point)))
-                    (point)))))
+           (python-info-triple-quoted-string-p)))
          ;; JT@2021-09-21: Since bug#49518's fix this will always be 1
          (num-quotes (python-syntax-count-quotes
                       (char-after str-start-pos) str-start-pos))
@@ -5781,7 +5787,8 @@ likely an invalid python file."
                (pairs '(("elif" "elif" "if")
                         ("else" "if" "elif" "except" "for" "while")
                         ("except" "except" "try")
-                        ("finally" "else" "except" "try")))
+                        ("finally" "else" "except" "try")
+                        ("case" "case")))
                (dedenter (match-string-no-properties 0))
                (possible-opening-blocks (cdr (assoc-string dedenter pairs)))
                (collected-indentations)
@@ -5789,7 +5796,11 @@ likely an invalid python file."
           (catch 'exit
             (while (python-nav--syntactically
                     (lambda ()
-                      (re-search-backward (python-rx block-start) nil t))
+                      (cl-loop while (re-search-backward (python-rx block-start) nil t)
+                               if (save-match-data
+                                    (looking-back (rx line-start (* whitespace))
+                                                  (line-beginning-position)))
+                               return t))
                     #'<)
               (let ((indentation (current-indentation)))
                 (when (and (not (memq indentation collected-indentations))
@@ -5843,7 +5854,14 @@ statement."
   (save-excursion
     (python-nav-beginning-of-statement)
     (when (and (not (python-syntax-context-type))
-               (looking-at (python-rx dedenter)))
+               (looking-at (python-rx dedenter))
+               ;; Exclude the first "case" in the block.
+               (not (and (string= (match-string-no-properties 0)
+                                  "case")
+                         (save-excursion
+                           (back-to-indentation)
+                           (python-util-forward-comment -1)
+                           (equal (char-before) ?:)))))
       (point))))
 
 (defun python-info-line-ends-backslash-p (&optional line-number)
@@ -6035,6 +6053,21 @@ point's current `syntax-ppss'."
               ((python-info-assignment-statement-p) t)
               ((python-info-looking-at-beginning-of-defun))
               (t nil))))))
+
+(defun python-info-triple-quoted-string-p ()
+  "Check if point is in a triple quoted string including quotes.
+It returns the position of the third quote character of the start
+of the string."
+  (save-excursion
+    (let ((pos (point)))
+      (cl-loop
+       for offset in '(0 3 -2 2 -1 1)
+       if (let ((check-pos (+ pos offset)))
+            (and (>= check-pos (point-min))
+                 (<= check-pos (point-max))
+                 (python-syntax-context
+                  'triple-quoted-string (syntax-ppss check-pos))))
+       return it))))
 
 (defun python-info-encoding-from-cookie ()
   "Detect current buffer's encoding from its coding cookie.
@@ -6374,7 +6407,7 @@ for key in sorted(result):
   "List files containing Python imports that may be useful in the current buffer."
   (if-let (((featurep 'project))        ;For compatibility with Emacs < 26
            (proj (project-current)))
-      (seq-filter (lambda (s) (string-match-p "\\.py[ciw]?\\'" s))
+      (seq-filter (lambda (s) (string-match-p "\\.py[iwx]?\\'" s))
                   (project-files proj))
     (list default-directory)))
 

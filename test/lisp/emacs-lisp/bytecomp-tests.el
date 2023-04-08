@@ -757,6 +757,15 @@ inner loops respectively."
         (bytecomp-test-identity 3)
       (error 'bad)
       (:success))                       ; empty handler
+
+    ;; `cond' miscompilation bug
+    (let ((fn (lambda (x)
+                (let ((y nil))
+                  (cond ((progn (setq x (1+ x)) (> x 10)) (setq y 'a))
+                        ((eq x 1) (setq y 'b))
+                        ((eq x 2) (setq y 'c)))
+                  (list x y)))))
+      (mapcar fn (bytecomp-test-identity '(0 1 2 3 10 11))))
     )
   "List of expressions for cross-testing interpreted and compiled code.")
 
@@ -886,19 +895,28 @@ byte-compiled.  Run with dynamic binding."
     ;; Should not warn that mt--test2 is not known to be defined.
     (should-not (re-search-forward "my--test2" nil t))))
 
-(defmacro bytecomp--with-warning-test (re-warning form)
+(defun bytecomp--with-warning-test (re-warning form)
   (declare (indent 1))
-  `(with-current-buffer (get-buffer-create "*Compile-Log*")
+  (with-current-buffer (get-buffer-create "*Compile-Log*")
      (let ((inhibit-read-only t)) (erase-buffer))
      (let ((text-quoting-style 'grave)
-           (macroexp--warned
-            (make-hash-table :test #'equal :weakness 'key))   ; oh dear
-           (form ,form))
+           (macroexp--warned            ; oh dear
+            (make-hash-table :test #'equal :weakness 'key)))
        (ert-info ((prin1-to-string form) :prefix "form: ")
          (byte-compile form)
          (ert-info ((prin1-to-string (buffer-string)) :prefix "buffer: ")
            (should (re-search-forward
-                    (string-replace " " "[ \n]+" ,re-warning))))))))
+                    (string-replace " " "[ \n]+" re-warning))))))))
+
+(ert-deftest bytecomp-warn--ignore ()
+  (bytecomp--with-warning-test "unused"
+    '(lambda (y) 6))
+  (bytecomp--with-warning-test "\\`\\'" ;No warning!
+    '(lambda (y) (ignore y) 6))
+  (bytecomp--with-warning-test "assq"
+    '(lambda (x y) (progn (assq x y) 5)))
+  (bytecomp--with-warning-test "\\`\\'" ;No warning!
+    '(lambda (x y) (progn (ignore (assq x y)) 5))))
 
 (ert-deftest bytecomp-warn-wrong-args ()
   (bytecomp--with-warning-test "remq.*3.*2"
@@ -1438,6 +1456,18 @@ literals (Bug#20852)."
    "Warning: Use .with-current-buffer. rather than")
 
   (test-suppression
+   '(defun zot (x)
+      (condition-case nil (list x)))
+   '((suspicious condition-case))
+   "Warning: `condition-case' without handlers")
+
+  (test-suppression
+   '(defun zot (x)
+      (unwind-protect (print x)))
+   '((suspicious unwind-protect))
+   "Warning: `unwind-protect' without unwind forms")
+
+  (test-suppression
    '(defun zot ()
       (let ((_ 1))
         ))
@@ -1826,6 +1856,34 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
     (should (eq (byte-compile-file src-file) 'no-byte-compile))
     (should-not (file-exists-p dest-file))))
 
+(ert-deftest bytecomp--copy-tree ()
+  (should (null (bytecomp--copy-tree nil)))
+  (let ((print-circle t))
+    (let* ((x '(1 2 (3 4)))
+           (y (bytecomp--copy-tree x)))
+      (should (equal (prin1-to-string (list x y))
+                     "((1 2 (3 4)) (1 2 (3 4)))")))
+    (let* ((x '#1=(a #1#))
+           (y (bytecomp--copy-tree x)))
+      (should (equal (prin1-to-string (list x y))
+                     "(#1=(a #1#) #2=(a #2#))")))
+    (let* ((x '#1=(#1# a))
+           (y (bytecomp--copy-tree x)))
+      (should (equal (prin1-to-string (list x y))
+                     "(#1=(#1# a) #2=(#2# a))")))
+    (let* ((x '((a . #1=(b)) #1#))
+           (y (bytecomp--copy-tree x)))
+      (should (equal (prin1-to-string (list x y))
+                     "(((a . #1=(b)) #1#) ((a . #2=(b)) #2#))")))
+    (let* ((x '#1=(a #2=(#1# b . #3=(#2# c . #1#)) (#3# d)))
+           (y (bytecomp--copy-tree x)))
+      (should (equal (prin1-to-string (list x y))
+                     (concat
+                      "("
+                      "#1=(a #2=(#1# b . #3=(#2# c . #1#)) (#3# d))"
+                      " "
+                      "#4=(a #5=(#4# b . #6=(#5# c . #4#)) (#6# d))"
+                      ")"))))))
 
 ;; Local Variables:
 ;; no-byte-compile: t
