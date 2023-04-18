@@ -250,7 +250,11 @@ chosen (interactively or automatically)."
                                        ("csharp-ls"))))
                                 (purescript-mode . ("purescript-language-server" "--stdio"))
                                 ((perl-mode cperl-mode) . ("perl" "-MPerl::LanguageServer" "-e" "Perl::LanguageServer::run"))
-                                (markdown-mode . ("marksman" "server")))
+                                (markdown-mode
+                                 . ,(eglot-alternatives
+                                     '(("marksman" "server")
+                                       ("vscode-markdown-language-server" "--stdio"))))
+                                (graphviz-dot-mode . ("dot-language-server" "--stdio")))
   "How the command `eglot' guesses the server to start.
 An association list of (MAJOR-MODE . CONTACT) pairs.  MAJOR-MODE
 identifies the buffers that are to be managed by a specific
@@ -3291,10 +3295,11 @@ Returns a list as described in docstring of `imenu--index-alist'."
                               `(:textDocument
                                 ,(eglot--TextDocumentIdentifier))
                               :cancel-on-input non-essential))
-         (head (and res (elt res 0))))
-    (eglot--dcase head
-      (((SymbolInformation)) (eglot--imenu-SymbolInformation res))
-      (((DocumentSymbol)) (eglot--imenu-DocumentSymbol res)))))
+         (head (and (cl-plusp (length res)) (elt res 0))))
+    (when head
+      (eglot--dcase head
+        (((SymbolInformation)) (eglot--imenu-SymbolInformation res))
+        (((DocumentSymbol)) (eglot--imenu-DocumentSymbol res))))))
 
 (cl-defun eglot--apply-text-edits (edits &optional version)
   "Apply EDITS for current buffer if at VERSION, or if it's nil."
