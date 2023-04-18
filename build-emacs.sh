@@ -6,9 +6,56 @@ _usage() { echo "Usage: ./build-emacs.sh --x11|--nox|--pgtk"; }
 case "$input" in
     --x11|--nox|--pgtk)
 	# update the system and install dependancies
-	sudo bash -c "dnf upgrade -y && dnf install -y libwebp{,-devel} lcms2-devel gcc-c++ && dnf builddep -y emacs"
+	sudo bash -c "dnf upgrade -y && dnf install -y libtool libwebp{,-devel} lcms2-devel gcc-c++ && dnf builddep -y emacs"
 
-	# build and install current tree-sitter
+	# keep sudo timer refreshed
+	while : ; do sudo -v; sleep 60; done &
+	sudo_loop=$!
+
+	# build and install latest sbcl
+	(
+	    cd ..
+
+	    if [[ ! -d sbcl ]]; then
+		git clone git://git.code.sf.net/p/sbcl/sbcl
+	    fi
+
+	    cd sbcl && ./clean.sh && ./make.sh
+
+	    (
+		cd ./doc/manual/
+		sudo dnf install texinfo-tex -y
+		make clean && make
+		sudo dnf remove texinfo-tex -y
+	    )
+
+	    ./install.sh
+	) >/dev/null 2>1 &
+
+	# build and install latest mailutils
+	(
+	    cd ..
+
+	    src="https://ftp.gnu.org/gnu/mailutils/mailutils-latest.tar.xz"
+	    xz="${src##*/}"
+	    dir="$(echo "$xz" | cut -d'-' -f1)"
+
+	    if [[ -d "$dir" ]]; then
+		sudo rm -rf "$dir"
+	    fi
+
+	    wget -q "$src"
+	    tmp=$(tar -tJf "$xz" | head -1 | tr -d '/')
+	    tar -xJf "$xz"
+	    mv "$tmp" "$dir"
+	    cd "$dir"
+
+	    ./configure
+	    make
+	    sudo make install
+	)
+
+	# build and install latest tree-sitter
 	(
 	    cd ..
 
@@ -61,25 +108,22 @@ case "$input" in
 	# - ./native-lisp/...
 	# - /usr/local/lib/...
 	# - ~/.emacs.d/eln-cache/...
+	# - ~/.emacs.d/straight/...
 	version="$(command grep 'PACKAGE_VERSION=' ./configure | cut -d'=' -f2 | tr -d \')"
 
 	if [[ -e ./native-lisp ]]; then
 	    for dir in ./native-lisp/*; do
-		rm -r "$dir" || :
-		sudo rm -r "/usr/local/lib/emacs/${version}/native-lisp/${dir##*/}" || :
-		rm -r "$HOME/.emacs.d/eln-cache/${dir##*/}" || :
+		rm -rf "$dir" || :
+		sudo rm -rf "/usr/local/lib/emacs/${version}/native-lisp/${dir##*/}" || :
+		rm -rf "$HOME/.emacs.d/eln-cache/${dir##*/}" || :
 	    done
 	fi
 
-	# keep sudo timer refreshed
-	while : ; do
-	    sudo -v
-	    sleep 60
-	done &
+	if [[ -e $HOME/.emacs.d/straight ]]; then
+	    rm -rf $HOME/.emacs.d/straight
+	fi
 
-	sudo_loop=$!
-
-	configure the build
+	# configure the build
 	case "$input" in
 	    --nox)
 		./configure \
@@ -135,6 +179,16 @@ case "$input" in
 
 	# uninstall old emacs; install new emacs
 	sudo bash -c 'make uninstall && make install'
+
+	# pull and build straight packages
+	/usr/local/bin/emacs --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
+
+	# native compile straight packages
+	echo "Native compiling Straight packages"
+	( /usr/local/bin/emacs --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el ) &
+	native_comp_pid=$!
+	wait "$native_comp_pid"
+	echo "Finished native compilation"
 
 	# reload changed unit files and start daemon
 	systemctl --user daemon-reload
