@@ -20,6 +20,8 @@ case "$input" in
 		git clone git://git.code.sf.net/p/sbcl/sbcl
 	    fi
 
+	    git pull --quiet
+
 	    cd sbcl && ./clean.sh && ./make.sh
 
 	    (
@@ -29,8 +31,11 @@ case "$input" in
 		sudo dnf remove texinfo-tex -y
 	    )
 
-	    ./install.sh
-	) >/dev/null 2>1 &
+	    sudo ./install.sh
+
+	) >/dev/null 2>&1 &
+
+	sbcl_build_pid=$!
 
 	# build and install latest mailutils
 	(
@@ -45,15 +50,17 @@ case "$input" in
 	    fi
 
 	    wget -q "$src"
-	    tmp=$(tar -tJf "$xz" | head -1 | tr -d '/')
+	    tmp="$(tar -tJf "$xz" | head -1 | tr -d '/')"
 	    tar -xJf "$xz"
 	    mv "$tmp" "$dir"
 	    cd "$dir"
 
 	    ./configure
-	    make
+	    make -j "$(nproc)"
 	    sudo make install
-	)
+	) >/dev/null 2>&1 &
+
+	mailutils_build_pid=$!
 
 	# build and install latest tree-sitter
 	(
@@ -62,16 +69,18 @@ case "$input" in
 	    if [[ ! -d tree-sitter ]]; then
 		git clone https://github.com/tree-sitter/tree-sitter.git
 		cd tree-sitter
-		make
+		make -j "$(nproc)"
 		sudo make install
 	    else
 		cd tree-sitter
 		make clean
 		git pull --quiet
-		make
+		make -j "$(nproc)"
 		sudo make install
 	    fi
-	)
+	) >/dev/null 2>&1 &
+
+	tree_sitter_build_pid=$!
 
 	# build and install tree-sitter-modules
 	(
@@ -90,10 +99,18 @@ case "$input" in
 		chown -R root:root dist/*
 		sudo mv ./dist/* /usr/local/lib/
 	    fi
-	)
 
-	# link tree-sitter libs
-	sudo ldconfig /usr/local/lib
+	    # link tree-sitter libs
+	    sudo ldconfig /usr/local/lib
+
+	) >/dev/null 2>&1 &
+
+	tree_sitter_module_build_pid=$!
+
+
+	wait $mailutils_build_pid
+	wait $tree_sitter_build_pid
+	wait $tree_sitter_module_build_pid
 
 	# clean and update the repo
 	make extraclean \
@@ -111,7 +128,7 @@ case "$input" in
 	# - ~/.emacs.d/straight/...
 	version="$(command grep 'PACKAGE_VERSION=' ./configure | cut -d'=' -f2 | tr -d \')"
 
-	if [[ -e ./native-lisp ]]; then
+	if [[ -d ./native-lisp ]]; then
 	    for dir in ./native-lisp/*; do
 		rm -rf "$dir" || :
 		sudo rm -rf "/usr/local/lib/emacs/${version}/native-lisp/${dir##*/}" || :
@@ -119,8 +136,8 @@ case "$input" in
 	    done
 	fi
 
-	if [[ -e $HOME/.emacs.d/straight ]]; then
-	    rm -rf $HOME/.emacs.d/straight
+	if [[ -d $HOME/.emacs.d/straight ]]; then
+	    rm -rf $HOME/.emacs.d/straight || :
 	fi
 
 	# configure the build
