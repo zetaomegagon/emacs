@@ -9,20 +9,22 @@ case "$input" in
 	sudo bash -c "dnf upgrade -y && dnf install -y libtool libwebp{,-devel} lcms2-devel gcc-c++ && dnf builddep -y emacs"
 
 	# keep sudo timer refreshed
-	while : ; do sudo -v; sleep 60; done &
-	sudo_loop=$!
+	script_pid="$$"
+	while pgrep bash | grep -q "$script_pid" ; do sudo -v; sleep 60; done &
 
 	# build and install latest sbcl
 	(
 	    cd ..
 
+	    if ! hash sbcl; then
+		sudo dnf install sbcl -y
+	    fi
+
 	    if [[ ! -d sbcl ]]; then
 		git clone git://git.code.sf.net/p/sbcl/sbcl
 	    fi
 
-	    git pull --quiet
-
-	    cd sbcl && ./clean.sh && ./make.sh
+	    cd sbcl && git pull --quiet && ./clean.sh && ./make.sh
 
 	    (
 		cd ./doc/manual/
@@ -36,6 +38,7 @@ case "$input" in
 	) >/dev/null 2>&1 &
 
 	sbcl_build_pid=$!
+	printf "%s\n" "Building Steel Bank Common Lisp"
 
 	# build and install latest mailutils
 	(
@@ -58,9 +61,12 @@ case "$input" in
 	    ./configure
 	    make -j "$(nproc)"
 	    sudo make install
+	    rm "$xz"
+
 	) >/dev/null 2>&1 &
 
 	mailutils_build_pid=$!
+	printf "%s\n" "Building GNU Mailutils"
 
 	# build and install latest tree-sitter
 	(
@@ -78,9 +84,11 @@ case "$input" in
 		make -j "$(nproc)"
 		sudo make install
 	    fi
+
 	) >/dev/null 2>&1 &
 
 	tree_sitter_build_pid=$!
+	printf "%s\n" "Building Tree-Sitter AST Parser"
 
 	# build and install tree-sitter-modules
 	(
@@ -106,11 +114,12 @@ case "$input" in
 	) >/dev/null 2>&1 &
 
 	tree_sitter_module_build_pid=$!
+	printf "%s\n" "Building Tree-Sitter AST Parser language modules"
 
-
-	wait $mailutils_build_pid
-	wait $tree_sitter_build_pid
-	wait $tree_sitter_module_build_pid
+	# wait for background builds to finish
+	wait "$mailutils_build_pid" \
+	     "$tree_sitter_build_pid" \
+	     "$tree_sitter_module_build_pid"
 
 	# clean and update the repo
 	make extraclean \
@@ -202,17 +211,13 @@ case "$input" in
 
 	# native compile straight packages
 	echo "Native compiling Straight packages"
-	( /usr/local/bin/emacs --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el ) &
-	native_comp_pid=$!
-	wait "$native_comp_pid"
+	/usr/local/bin/emacs --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
 	echo "Finished native compilation"
 
 	# reload changed unit files and start daemon
 	systemctl --user daemon-reload
 	systemctl --user enable --now  emacs.service
 
-	# stop sudo timer refresh
-	sudo kill -9 "$sudo_loop"
 	;;
     *)
 	_usage
