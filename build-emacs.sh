@@ -5,12 +5,15 @@ _usage() { echo "Usage: ./build-emacs.sh --x11|--nox|--pgtk"; }
 
 case "$input" in
     --x11|--nox|--pgtk)
-	# update the system and install dependancies
-	sudo bash -c "dnf upgrade -y && dnf install -y libtool libwebp{,-devel} lcms2-devel gcc-c++ && dnf builddep -y emacs"
-
 	# keep sudo timer refreshed
+	sudo -v
 	script_pid="$$"
 	while pgrep bash | grep -q "$script_pid" ; do sudo -v; sleep 60; done &
+
+	# update the system and install dependancies
+	sudo dnf upgrade -y
+	sudo dnf install -y libtool libwebp{,-devel} lcms2-devel gcc-c++
+	sudo dnf builddep -y emacs
 
 	# build and install latest sbcl
 	(
@@ -34,6 +37,7 @@ case "$input" in
 	    )
 
 	    sudo ./install.sh
+	    sudo dnf remove sbcl -y
 
 	) >/dev/null 2>&1 &
 
@@ -102,6 +106,7 @@ case "$input" in
 		sudo mv ./dist/* /usr/local/lib/
 	    else
 		cd tree-sitter-module
+		[[ -d ./dist ]] && sudo rm -rf ./dist
 		git pull --quiet
 		./batch.sh
 		chown -R root:root dist/*
@@ -122,10 +127,10 @@ case "$input" in
 	     "$tree_sitter_module_build_pid"
 
 	# clean and update the repo
-	make extraclean \
-	    && git fetch upstream \
-	    && git merge --no-edit upstream/master \
-	    && git push -u origin master
+	make extraclean
+	git fetch upstream
+	git merge --no-edit upstream/master
+	git push -u origin master
 
 	# generate configure script
 	./autogen.sh
