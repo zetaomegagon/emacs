@@ -142,17 +142,10 @@ case "$input" in
 	# - ~/.emacs.d/straight/...
 	version="$(command grep 'PACKAGE_VERSION=' ./configure | cut -d'=' -f2 | tr -d \')"
 
-	if [[ -d ./native-lisp ]]; then
-	    for dir in ./native-lisp/*; do
-		rm -rf "$dir" || :
-		sudo rm -rf "/usr/local/lib/emacs/${version}/native-lisp/${dir##*/}" || :
-		rm -rf "$HOME/.emacs.d/eln-cache/${dir##*/}" || :
-	    done
-	fi
-
-	if [[ -d $HOME/.emacs.d/straight ]]; then
-	    rm -rf $HOME/.emacs.d/straight || :
-	fi
+	rm -rf ./native-lisp/{,.}* || :
+	sudo rm -rf /usr/local/lib/emacs/${version}/native-lisp/{,.}* || :
+	rm -rf $HOME/.emacs.d/eln-cache/{,.}* || :
+	rm -rf $HOME/.emacs.d/straight/{,.}* || :
 
 	# configure the build
 	case "$input" in
