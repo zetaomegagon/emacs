@@ -724,8 +724,23 @@ treated as in `eglot--dbind'."
 (cl-defgeneric eglot-handle-notification (server method &rest params)
   "Handle SERVER's METHOD notification with PARAMS.")
 
-(cl-defgeneric eglot-execute-command (server command arguments)
-  "Ask SERVER to execute COMMAND with ARGUMENTS.")
+(cl-defgeneric eglot-execute-command (_ _ _)
+  (declare (obsolete eglot-execute "30.1"))
+  (:method
+   (server command arguments)
+   (eglot--request server :workspace/executeCommand
+                   `(:command ,(format "%s" command) :arguments ,arguments))))
+
+(cl-defgeneric eglot-execute (server action)
+  "Ask SERVER to execute ACTION.
+ACTION is an LSP object of either `CodeAction' or `Command' type."
+  (:method
+   (server action) "Default implementation."
+   (eglot--dcase action
+     (((Command)) (eglot--request server :workspace/executeCommand action))
+     (((CodeAction) edit command)
+      (when edit (eglot--apply-workspace-edit edit))
+      (when command (eglot--request server :workspace/executeCommand action))))))
 
 (cl-defgeneric eglot-initialization-options (server)
   "JSON object to send under `initializationOptions'."
@@ -830,7 +845,8 @@ treated as in `eglot--dbind'."
                                        `(:valueSet
                                          [,@(mapcar
                                              #'car eglot--tag-faces)])))
-            :window `(:workDoneProgress t)
+            :window `(:showDocument (:support t)
+                      :workDoneProgress t)
             :general (list :positionEncodings ["utf-32" "utf-8" "utf-16"])
             :experimental eglot--{})))
 
@@ -2003,7 +2019,7 @@ If it is activated, also signal textDocument/didOpen."
        (interactive) (info "(eglot)"))
 
 ;;;###autoload
-(defun eglot-update (&rest _) "Update Eglot."
+(defun eglot-upgrade-eglot (&rest _) "Update Eglot to latest version."
   (interactive)
   (with-no-warnings
     (require 'package)
@@ -2011,6 +2027,9 @@ If it is activated, also signal textDocument/didOpen."
     (when-let ((existing (cadr (assoc 'eglot package-alist))))
       (package-delete existing t))
     (package-install (cadr (assoc 'eglot package-archive-contents)))))
+
+;;;###autoload
+(define-obsolete-function-alias 'eglot-update 'eglot-upgrade-eglot "29.1")
 
 (easy-menu-define eglot-menu nil "Eglot"
   `("Eglot"
@@ -2177,13 +2196,6 @@ still unanswered LSP requests to the server\n")))
   "Handle unknown request."
   (when (memq 'disallow-unknown-methods eglot-strict-mode)
     (jsonrpc-error "Unknown request method `%s'" method)))
-
-(cl-defmethod eglot-execute-command
-  (server command arguments)
-  "Execute COMMAND on SERVER with `:workspace/executeCommand'.
-COMMAND is a symbol naming the command."
-  (eglot--request server :workspace/executeCommand
-                  `(:command ,(format "%s" command) :arguments ,arguments)))
 
 (cl-defmethod eglot-handle-notification
   (_server (_method (eql window/showMessage)) &key type message)
@@ -2354,6 +2366,36 @@ THINGS are either registrations or unregisterations (sic)."
   (server (_method (eql workspace/workspaceFolders)))
   "Handle server request workspace/workspaceFolders."
   (eglot-workspace-folders server))
+
+(cl-defmethod eglot-handle-request
+  (_server (_method (eql window/showDocument)) &key
+           uri external takeFocus selection)
+  "Handle request window/showDocument."
+  (let ((success t)
+        (filename))
+    (cond
+     ((eq external t) (browse-url uri))
+     ((file-readable-p (setq filename (eglot--uri-to-path uri)))
+      ;; Use run-with-timer to avoid nested client requests like the
+      ;; "synchronous imenu" floated in bug#62116 presumably caused by
+      ;; which-func-mode.
+      (run-with-timer
+       0 nil
+       (lambda ()
+         (with-current-buffer (find-file-noselect filename)
+           (cond (takeFocus
+                  (pop-to-buffer (current-buffer))
+                  (select-frame-set-input-focus (selected-frame)))
+                 ((display-buffer (current-buffer))))
+           (when selection
+             (pcase-let ((`(,beg . ,end) (eglot--range-region selection)))
+               ;; FIXME: it is very naughty to use someone else's `--'
+               ;; function, but `xref--goto-char' happens to have
+               ;; exactly the semantics we want vis-a-vis widening.
+               (xref--goto-char beg)
+               (pulse-momentary-highlight-region beg end 'highlight)))))))
+     (t (setq success :json-false)))
+    `(:success ,success)))
 
 (defun eglot--TextDocumentIdentifier ()
   "Compute TextDocumentIdentifier object for current buffer."
@@ -3462,14 +3504,7 @@ at point.  With prefix argument, prompt for ACTION-KIND."
                                           default-action)
                                   menu-items nil t nil nil default-action)
                                  menu-items))))))
-    (eglot--dcase chosen
-      (((Command) command arguments)
-       (eglot-execute-command server (intern command) arguments))
-      (((CodeAction) edit command)
-       (when edit (eglot--apply-workspace-edit edit))
-       (when command
-         (eglot--dbind ((Command) command arguments) command
-           (eglot-execute-command server (intern command) arguments)))))))
+    (eglot-execute server chosen)))
 
 (defmacro eglot--code-action (name kind)
   "Define NAME to execute KIND code action."

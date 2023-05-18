@@ -635,9 +635,12 @@ instead of just updating them with the new/changed autoloads."
                     (progn
                       (goto-char (point-max))
                       (search-backward "\f\n" nil t))
-                  ;; Delete the old version of the section.
+                  ;; Delete the old version of the section.  Strictly
+                  ;; speaking this should search for "\n\f\n;;;", but
+                  ;; there are loaddefs files in the wild that only
+                  ;; have two ';;'.  (Bug#63236)
                   (delete-region (match-beginning 0)
-                                 (and (search-forward "\n\f\n;;;")
+                                 (and (search-forward "\n\f\n;;")
                                       (match-beginning 0)))
                   (forward-line -2)))
               (insert head)
@@ -653,7 +656,20 @@ instead of just updating them with the new/changed autoloads."
             (write-region (point-min) (point-max) loaddefs-file nil 'silent)
             (byte-compile-info
              (file-relative-name loaddefs-file (car (ensure-list dir)))
-             t "GEN")))))))
+             t "GEN")))))
+
+    ;; If processing files without any autoloads, the above loop will
+    ;; not generate any files.  If the function was invoked with
+    ;; EXTRA-DATA, we want to ensure that even if no autoloads were
+    ;; found, that at least a file will have been generated containing
+    ;; the contents of EXTRA-DATA:
+    (when (and extra-data (not (file-exists-p output-file)))
+      (with-temp-buffer
+        (insert (loaddefs-generate--rubric output-file nil t))
+        (search-backward "\f")
+        (insert extra-data)
+        (ensure-empty-lines 1)
+        (write-region (point-min) (point-max) output-file nil 'silent)))))
 
 (defun loaddefs-generate--print-form (def)
   "Print DEF in a format that makes sense for version control."

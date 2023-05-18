@@ -533,7 +533,7 @@ encode_terminal_code (struct glyph *src, int src_len,
      multibyte-form.  But, it may be enlarged on demand if
      Vglyph_table contains a string or a composite glyph is
      encountered.  */
-  if (INT_MULTIPLY_WRAPV (src_len, MAX_MULTIBYTE_LENGTH, &required))
+  if (ckd_mul (&required, src_len, MAX_MULTIBYTE_LENGTH))
     memory_full (SIZE_MAX);
   if (encode_terminal_src_size < required)
     encode_terminal_src = xpalloc (encode_terminal_src,
@@ -3319,7 +3319,7 @@ tty_menu_activate (tty_menu *menu, int *pane, int *selidx,
 		       active submenu.  */
 		    if (i != statecount - 2
 			|| state[i].menu->submenu[dy] != state[i + 1].menu)
-		      while (i != statecount - 1)
+		      while (i < statecount - 1)
 			{
 			  statecount--;
 			  screen_update (sf, state[statecount].screen_behind);

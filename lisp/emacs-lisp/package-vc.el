@@ -167,7 +167,7 @@ archive."
                                          (:vc-backend symbol)))))
   :version "29.1")
 
-(defvar package-vc--archive-spec-alist nil
+(defvar package-vc--archive-spec-alists nil
   "List of package specifications for each archive.
 The list maps each package name, as a string, to a plist as
 specified in `package-vc-selected-packages'.")
@@ -199,15 +199,15 @@ name for PKG-DESC."
             (not (alist-get name package-vc-selected-packages
                             nil nil #'string=)))
        (alist-get (intern (package-desc-archive pkg-desc))
-                  package-vc--archive-spec-alist)
+                  package-vc--archive-spec-alists)
      ;; Consult both our local list of package specifications, as well
      ;; as the lists provided by the archives.
      (apply #'append (cons package-vc-selected-packages
-                           (mapcar #'cdr package-vc--archive-spec-alist))))
+                           (mapcar #'cdr package-vc--archive-spec-alists))))
    '() nil #'string=))
 
 (defun package-vc--read-archive-data (archive)
-  "Update `package-vc--archive-spec-alist' for ARCHIVE.
+  "Update `package-vc--archive-spec-alists' for ARCHIVE.
 This function is meant to be used as a hook for `package-read-archive-hook'."
   (let ((contents-file (expand-file-name
                         (format "archives/%s/elpa-packages.eld" archive)
@@ -224,7 +224,7 @@ This function is meant to be used as a hook for `package-read-archive-hook'."
           (let ((spec (read (current-buffer))))
             (when (eq package-vc--elpa-packages-version
                       (plist-get (cdr spec) :version))
-              (setf (alist-get (intern archive) package-vc--archive-spec-alist)
+              (setf (alist-get (intern archive) package-vc--archive-spec-alists)
                     (car spec)))
             (setf (alist-get (intern archive) package-vc--archive-data-alist)
                   (cdr spec))
@@ -235,7 +235,7 @@ This function is meant to be used as a hook for `package-read-archive-hook'."
 
 (defun package-vc--download-and-read-archives (&optional async)
   "Download specifications of all `package-archives' and read them.
-Populate `package-vc--archive-spec-alist' with the result.
+Populate `package-vc--archive-spec-alists' with the result.
 
 If optional argument ASYNC is non-nil, perform the downloads
 asynchronously."
@@ -343,6 +343,40 @@ asynchronously."
            (package-desc-extras pkg-desc))))
         "\n")
        nil pkg-file nil 'silent))))
+
+(defcustom package-vc-allow-side-effects nil
+  "Whether to process :make and :shell-command spec arguments.
+
+It may be necessary to run :make and :shell-command arguments in
+order to initialize a package or build its documentation, but
+please be careful when changing this option, as installing and
+updating a package can run potentially harmful code.
+
+When set to a list of symbols (packages), run commands for only
+packages in the list.  When nil, never run commands.  Otherwise
+when non-nil, run commands for any package with :make or
+:shell-command specified.
+
+Package specs are loaded from trusted package archives."
+  :type '(choice (const :tag "Run for all packages" t)
+                 (repeat :tag "Run only for selected packages" (symbol :tag "Package name"))
+                 (const :tag "Never run" nil))
+  :version "30.1")
+
+(defun package-vc--make (pkg-spec pkg-desc)
+  "Process :make and :shell-command in PKG-SPEC.
+PKG-DESC is the package descriptor for the package that is being
+prepared."
+  (let ((target (plist-get pkg-spec :make))
+        (cmd (plist-get pkg-spec :shell-command))
+        (buf (format " *package-vc make %s*" (package-desc-name pkg-desc))))
+    (when (or cmd target)
+      (with-current-buffer (get-buffer-create buf)
+        (erase-buffer)
+        (when (and cmd (/= 0 (call-process shell-file-name nil t nil shell-command-switch cmd)))
+          (warn "Failed to run %s, see buffer %S" cmd (buffer-name)))
+        (when (and target (/= 0 (apply #'call-process "make" nil t nil (if (consp target) target (list target)))))
+          (warn "Failed to make %s, see buffer %S" target (buffer-name)))))))
 
 (declare-function org-export-to-file "ox" (backend file))
 
@@ -486,6 +520,12 @@ documentation and marking the package as installed."
       ;; Generate package file
       (package-vc--generate-description-file pkg-desc pkg-file)
 
+      ;; Process :make and :shell-command arguments before building documentation
+      (when (or (eq package-vc-allow-side-effects t)
+                (memq (package-desc-name pkg-desc)
+                      package-vc-allow-side-effects))
+        (package-vc--make pkg-spec pkg-desc))
+
       ;; Detect a manual
       (when (executable-find "install-info")
         (dolist (doc-file (ensure-list (plist-get pkg-spec :doc)))
@@ -583,7 +623,7 @@ Emacs Lisp files.")
 (defun package-vc--unpack (pkg-desc pkg-spec &optional rev)
   "Install the package described by PKG-DESC.
 PKG-SPEC is a package specification, a property list describing
-how to fetch and build the package.  See `package-vc--archive-spec-alist'
+how to fetch and build the package.  See `package-vc--archive-spec-alists'
 for details.  The optional argument REV specifies a specific revision to
 checkout.  This overrides the `:branch' attribute in PKG-SPEC."
   (unless (eq (package-desc-kind pkg-desc) 'vc)
@@ -632,7 +672,8 @@ abort installation?" name))
           (throw 'done (setq lisp-dir name)))))
 
     ;; Ensure we have a copy of the package specification
-    (unless (equal (alist-get name (mapcar #'cdr package-vc--archive-spec-alist)) pkg-spec)
+    (unless (seq-some (lambda (alist) (equal (alist-get name (cdr alist)) pkg-spec))
+                      package-vc--archive-spec-alists)
       (customize-save-variable
        'package-vc-selected-packages
        (cons (cons name pkg-spec)
@@ -758,11 +799,13 @@ indicating the package name and SPEC is a plist as described in
 symbol whose name is the package name, and the URL for the
 package will be taken from the package's metadata.
 
-By default, this function installs the last version of the package
-available from its repository, but if REV is given and non-nil, it
-specifies the revision to install.  If REV has the special value
-`:last-release' (interactively, the prefix argument), that stands
-for the last released version of the package.
+By default, this function installs the last revision of the
+package available from its repository.  If REV is a string, it
+describes the revision to install, as interpreted by the VC
+backend.  The special value `:last-release' (interactively, the
+prefix argument), will use the commit of the latest release, if
+it exists.  The last release is the latest revision which changed
+the \"Version:\" header of the package's main Lisp file.
 
 Optional argument BACKEND specifies the VC backend to use for cloning
 the package's repository; this is only possible if NAME-OR-URL is a URL,
