@@ -102,19 +102,19 @@ case "$input" in
 		git clone https://github.com/casouri/tree-sitter-module
 		cd tree-sitter-module
 		./batch.sh
-		chown -R root:root dist/*
-		sudo mv ./dist/* /usr/local/lib/
+		chown -R root:root dist/
+		sudo mv --force ./dist /usr/local/lib/tree-sitter
 	    else
 		cd tree-sitter-module
 		[[ -d ./dist ]] && sudo rm -rf ./dist
 		git pull --quiet
 		./batch.sh
-		chown -R root:root dist/*
-		sudo mv ./dist/* /usr/local/lib/
+		chown -R root:root dist/
+		sudo mv --force ./dist /usr/local/lib/tree-sitter
 	    fi
 
 	    # link tree-sitter libs
-	    sudo ldconfig /usr/local/lib
+	    sudo ldconfig /usr/local/lib/tree-sitter
 
 	) >/dev/null 2>&1 &
 
