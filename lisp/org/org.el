@@ -9,7 +9,7 @@
 ;; URL: https://orgmode.org
 ;; Package-Requires: ((emacs "26.1"))
 
-;; Version: 9.6.5
+;; Version: 9.6.6
 
 ;; This file is part of GNU Emacs.
 ;;
@@ -16422,7 +16422,7 @@ buffer boundaries with possible narrowing."
 (defun org-display-inline-remove-overlay (ov after _beg _end &optional _len)
   "Remove inline-display overlay if a corresponding region is modified."
   (when (and ov after)
-    (delete ov org-inline-image-overlays)
+    (setq org-inline-image-overlays (delete ov org-inline-image-overlays))
     ;; Clear image from cache to avoid image not updating upon
     ;; changing on disk.  See Emacs bug#59902.
     (when (overlay-get ov 'org-image-overlay)
