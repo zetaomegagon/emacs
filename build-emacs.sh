@@ -50,7 +50,7 @@ case "$input" in
 
 	    src="https://ftp.gnu.org/gnu/mailutils/mailutils-latest.tar.xz"
 	    xz="${src##*/}"
-	    dir="$(echo "$xz" | cut -d'-' -f1)"
+	    dir="${xz%-*}"
 
 	    if [[ -d "$dir" ]]; then
 		sudo rm -rf "$dir"
@@ -65,7 +65,7 @@ case "$input" in
 	    ./configure
 	    make -j "$(nproc)"
 	    sudo make install
-	    rm "$xz"
+	    rm ../"$xz"
 
 	) >/dev/null 2>&1 &
 
@@ -79,15 +79,14 @@ case "$input" in
 	    if [[ ! -d tree-sitter ]]; then
 		git clone https://github.com/tree-sitter/tree-sitter.git
 		cd tree-sitter
-		make -j "$(nproc)"
-		sudo make install
 	    else
 		cd tree-sitter
 		make clean
 		git pull --quiet
-		make -j "$(nproc)"
-		sudo make install
 	    fi
+
+	    make -j "$(nproc)"
+	    sudo make install
 
 	) >/dev/null 2>&1 &
 
@@ -101,20 +100,21 @@ case "$input" in
 	    if [[ ! -d tree-sitter-module ]]; then
 		git clone https://github.com/casouri/tree-sitter-module
 		cd tree-sitter-module
-		./batch.sh
-		chown -R root:root dist/
-		sudo mv --force ./dist /usr/local/lib/tree-sitter
 	    else
 		cd tree-sitter-module
 		[[ -d ./dist ]] && sudo rm -rf ./dist
+		git stash
 		git pull --quiet
-		./batch.sh
-		chown -R root:root dist/
-		sudo mv --force ./dist /usr/local/lib/tree-sitter
+		git stash apply
+		git stash drop
 	    fi
 
+	    ./batch.sh
+	    sudo chown -R root:root dist/
+	    sudo cp ./dist/* /usr/local/lib/
+
 	    # link tree-sitter libs
-	    sudo ldconfig /usr/local/lib/tree-sitter
+	    sudo ldconfig /usr/local/lib
 
 	) >/dev/null 2>&1 &
 
@@ -153,7 +153,6 @@ case "$input" in
 		./configure \
 		    --without-all \
 		    --without-x \
-		    --enable-check-lisp-object-type \
 		    --enable-acl \
 		    --enable-year2038 \
 		    --with-sqlite3 \
@@ -168,26 +167,33 @@ case "$input" in
 		    --with-selinux \
 		    --with-gnutls \
 		    --with-file-notification=yes \
+		    --with-gameuser=:games \
+		    --enable-check-lisp-object-type \
 		    --with-native-compilation=aot \
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --x11)
 		./configure \
-		    --enable-check-lisp-object-type \
-		    --with-x-toolkit=lucid \
+		    --with-x-toolkit=no \
 		    --with-mailutils \
 		    --with-wide-int \
 		    --with-tree-sitter \
+		    --with-cairo \
+		    --without-gconf \
+		    --without-gsettings \
+		    --with-gameuser=:games \
+		    --enable-check-lisp-object-type \
 		    --with-native-compilation=aot \
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --pgtk)
 		./configure \
-		    --enable-check-lisp-object-type \
 		    --with-pgtk \
 		    --with-mailutils \
 		    --with-wide-int \
 		    --with-tree-sitter \
+		    --with-gameuser=:games \
+		    --enable-check-lisp-object-type \
 		    --with-native-compilation=aot \
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
@@ -196,26 +202,27 @@ case "$input" in
 	esac
 
 	# make the build
-	make -j "$(nproc)"
+	make -j $(( $(nproc) / 2 ))
 
 	# disable and stop emacs daemon
-	systemctl --user disable --now emacs.service
+	[[ ! -f $HOME/.bin/emacs ]] && systemctl --user disable --now emacs.service
 
 	# uninstall old emacs; install new emacs
 	sudo bash -c 'make uninstall && make install'
 
 	# pull and build straight packages
-	/usr/local/bin/emacs --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
+	/usr/local/bin/emacs -Q --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
 
 	# native compile straight packages
 	echo "Native compiling Straight packages"
-	/usr/local/bin/emacs --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
+	/usr/local/bin/emacs -Q --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
 	echo "Finished native compilation"
 
 	# reload changed unit files and start daemon
-	systemctl --user daemon-reload
-	systemctl --user enable --now  emacs.service
-
+	if [[ ! -f $HOME/.bin/emacs ]]; then
+	    systemctl --user daemon-reload
+	    systemctl --user enable --now  emacs.service
+	fi
 	;;
     *)
 	_usage
