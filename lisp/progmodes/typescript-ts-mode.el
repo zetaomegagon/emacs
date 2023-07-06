@@ -128,7 +128,7 @@ Argument LANGUAGE is either `typescript' or `tsx'."
     "case" "catch" "class" "const" "continue" "debugger"
     "declare" "default" "delete" "do" "else" "enum"
     "export" "extends" "finally" "for" "from" "function"
-    "get" "if" "implements" "import" "in" "instanceof" "interface"
+    "get" "if" "implements" "import" "in" "instanceof" "interface" "is" "infer"
     "keyof" "let" "namespace" "new" "of" "private" "protected"
     "public" "readonly" "return" "set" "static" "switch"
     "target" "throw" "try" "type" "typeof" "var" "void"
@@ -153,7 +153,7 @@ Argument LANGUAGE is either `typescript' or `tsx'."
    :language language
    :feature 'constant
    `(((identifier) @font-lock-constant-face
-      (:match "^[A-Z_][A-Z_\\d]*$" @font-lock-constant-face))
+      (:match "\\`[A-Z_][0-9A-Z_]*\\'" @font-lock-constant-face))
      [(true) (false) (null)] @font-lock-constant-face)
 
    :language language
@@ -173,8 +173,9 @@ Argument LANGUAGE is either `typescript' or `tsx'."
    :feature 'declaration
    `((function
       name: (identifier) @font-lock-function-name-face)
-
      (function_declaration
+      name: (identifier) @font-lock-function-name-face)
+     (function_signature
       name: (identifier) @font-lock-function-name-face)
 
      (method_definition
@@ -310,7 +311,7 @@ Argument LANGUAGE is either `typescript' or `tsx'."
    :feature 'number
    `((number) @font-lock-number-face
      ((identifier) @font-lock-number-face
-      (:match "^\\(:?NaN\\|Infinity\\)$" @font-lock-number-face)))
+      (:match "\\`\\(?:NaN\\|Infinity\\)\\'" @font-lock-number-face)))
 
    :language language
    :feature 'operator

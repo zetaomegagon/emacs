@@ -230,7 +230,7 @@ chosen (interactively or automatically)."
                                  . ,(eglot-alternatives '("digestif" "texlab")))
                                 (erlang-mode . ("erlang_ls" "--transport" "stdio"))
                                 ((yaml-ts-mode yaml-mode) . ("yaml-language-server" "--stdio"))
-                                (nix-mode . ,(eglot-alternatives '("nil" "rnix-lsp")))
+                                (nix-mode . ,(eglot-alternatives '("nil" "rnix-lsp" "nixd")))
                                 (nickel-mode . ("nls"))
                                 (gdscript-mode . ("localhost" 6008))
                                 ((fortran-mode f90-mode) . ("fortls"))
@@ -888,7 +888,7 @@ ACTION is an LSP object of either `CodeAction' or `Command' type."
     :documentation "Generalized boolean inhibiting auto-reconnection if true."
     :accessor eglot--inhibit-autoreconnect)
    (file-watches
-    :documentation "Map ID to list of WATCHES for `didChangeWatchedFiles'."
+    :documentation "Map (DIR -> (WATCH ID1 ID2...)) for `didChangeWatchedFiles'."
     :initform (make-hash-table :test #'equal) :accessor eglot--file-watches)
    (managed-buffers
     :documentation "List of buffers managed by server."
@@ -959,8 +959,8 @@ PRESERVE-BUFFERS as in `eglot-shutdown', which see."
           (eglot-autoshutdown nil))
       (eglot--when-live-buffer buffer (eglot--managed-mode-off))))
   ;; Kill any expensive watches
-  (maphash (lambda (_id watches)
-             (mapcar #'file-notify-rm-watch watches))
+  (maphash (lambda (_dir watch-and-ids)
+             (file-notify-rm-watch (car watch-and-ids)))
            (eglot--file-watches server))
   ;; Kill any autostarted inferior processes
   (when-let (proc (eglot--inferior-process server))
@@ -3196,49 +3196,51 @@ for which LSP on-type-formatting should be requested."
                  ((:documentation sigdoc)) parameters activeParameter)
       sig
     (with-temp-buffer
-      (save-excursion (insert siglabel))
+      (insert siglabel)
       ;; Ad-hoc attempt to parse label as <name>(<params>)
-        (when (looking-at "\\([^(]*\\)(\\([^)]+\\))")
-          (add-face-text-property (match-beginning 1) (match-end 1)
-                                  'font-lock-function-name-face))
-        ;; Add documentation, indented so we can distinguish multiple signatures
-        (when-let (doc (and (not briefp) sigdoc (eglot--format-markup sigdoc)))
-          (goto-char (point-max))
-          (insert "\n" (replace-regexp-in-string "^" "  " doc)))
-        ;; Now to the parameters
-        (cl-loop
-         with active-param = (or sig-active activeParameter)
-         for i from 0 for parameter across parameters do
-         (eglot--dbind ((ParameterInformation)
-                        ((:label parlabel))
-                        ((:documentation pardoc)))
-             parameter
-           ;; ...perhaps highlight it in the formals list
-           (when (and (eq i active-param))
-             (save-excursion
-               (goto-char (point-min))
-               (pcase-let
-                   ((`(,beg ,end)
-                     (if (stringp parlabel)
-                         (let ((case-fold-search nil))
-                           (and (search-forward parlabel (line-end-position) t)
-                                (list (match-beginning 0) (match-end 0))))
-                       (mapcar #'1+ (append parlabel nil)))))
-                 (if (and beg end)
-                     (add-face-text-property
-                      beg end
-                      'eldoc-highlight-function-argument)))))
-           ;; ...and/or maybe add its doc on a line by its own.
-           (let (fpardoc)
-             (when (and pardoc (not briefp)
-                        (not (string-empty-p
-                              (setq fpardoc (eglot--format-markup pardoc)))))
-               (insert "\n  "
-                       (propertize
-                        (if (stringp parlabel) parlabel
-                          (apply #'substring siglabel (mapcar #'1+ parlabel)))
-                        'face (and (eq i active-param) 'eldoc-highlight-function-argument))
-                       ": " fpardoc)))))
+      ;; Add documentation, indented so we can distinguish multiple signatures
+      (when-let (doc (and (not briefp) sigdoc (eglot--format-markup sigdoc)))
+        (goto-char (point-max))
+        (insert "\n" (replace-regexp-in-string "^" "  " doc)))
+      ;; Now to the parameters
+      (cl-loop
+       with active-param = (or sig-active activeParameter)
+       for i from 0 for parameter across parameters do
+       (eglot--dbind ((ParameterInformation)
+                      ((:label parlabel))
+                      ((:documentation pardoc)))
+           parameter
+         (when (zerop i)
+           (goto-char (elt parlabel 0))
+           (skip-syntax-backward "^w")
+           (add-face-text-property (point-min) (point)
+                                   'font-lock-function-name-face))
+         ;; ...perhaps highlight it in the formals list
+         (when (= i active-param)
+           (save-excursion
+             (goto-char (point-min))
+             (pcase-let
+                 ((`(,beg ,end)
+                   (if (stringp parlabel)
+                       (let ((case-fold-search nil))
+                         (and (search-forward parlabel (line-end-position) t)
+                              (list (match-beginning 0) (match-end 0))))
+                     (mapcar #'1+ (append parlabel nil)))))
+               (if (and beg end)
+                   (add-face-text-property
+                    beg end
+                    'eldoc-highlight-function-argument)))))
+         ;; ...and/or maybe add its doc on a line by its own.
+         (let (fpardoc)
+           (when (and pardoc (not briefp)
+                      (not (string-empty-p
+                            (setq fpardoc (eglot--format-markup pardoc)))))
+             (insert "\n  "
+                     (propertize
+                      (if (stringp parlabel) parlabel
+                        (apply #'substring siglabel (mapcar #'1+ parlabel)))
+                      'face (and (eq i active-param) 'eldoc-highlight-function-argument))
+                     ": " fpardoc)))))
       (buffer-string))))
 
 (defun eglot-signature-eldoc-function (cb)
@@ -3348,9 +3350,11 @@ for which LSP on-type-formatting should be requested."
                             (mapcar (lambda (c) (apply #'dfs c)) children))))))
     (mapcar (lambda (s) (apply #'dfs s)) res)))
 
-(defun eglot-imenu ()
+(cl-defun eglot-imenu ()
   "Eglot's `imenu-create-index-function'.
 Returns a list as described in docstring of `imenu--index-alist'."
+  (unless (eglot--server-capable :textDocument/documentSymbol)
+    (cl-return-from eglot-imenu))
   (let* ((res (eglot--request (eglot--current-server-or-lose)
                               :textDocument/documentSymbol
                               `(:textDocument
@@ -3543,8 +3547,7 @@ at point.  With prefix argument, prompt for ACTION-KIND."
                                (project-files
                                 (eglot--project server))))))
     (cl-labels
-        ((handle-event
-           (event)
+        ((handle-event (event)
            (pcase-let* ((`(,desc ,action ,file ,file1) event)
                         (action-type (cl-case action
                                        (created 1) (changed 2) (deleted 3)))
@@ -3558,16 +3561,24 @@ at point.  With prefix argument, prompt for ACTION-KIND."
                (jsonrpc-notify
                 server :workspace/didChangeWatchedFiles
                 `(:changes ,(vector `(:uri ,(eglot--path-to-uri file)
-                                           :type ,action-type)))))
+                                           :type ,action-type))))
+               (when (and (eq action 'created)
+                          (file-directory-p file))
+                 (watch-dir file)))
               ((eq action 'renamed)
                (handle-event `(,desc 'deleted ,file))
-               (handle-event `(,desc 'created ,file1)))))))
+               (handle-event `(,desc 'created ,file1))))))
+         (watch-dir (dir)
+           (when-let ((probe
+                       (and (file-readable-p dir)
+                            (or (gethash dir (eglot--file-watches server))
+                                (puthash dir (list (file-notify-add-watch
+                                                    dir '(change) #'handle-event))
+                                         (eglot--file-watches server))))))
+             (push id (cdr probe)))))
       (unwind-protect
           (progn
-            (dolist (dir dirs-to-watch)
-              (when (file-readable-p dir)
-                (push (file-notify-add-watch dir '(change) #'handle-event)
-                      (gethash id (eglot--file-watches server)))))
+            (mapc #'watch-dir dirs-to-watch)
             (setq
              success
              `(:message ,(format "OK, watching %s directories in %s watchers"
@@ -3578,8 +3589,12 @@ at point.  With prefix argument, prompt for ACTION-KIND."
 (cl-defmethod eglot-unregister-capability
   (server (_method (eql workspace/didChangeWatchedFiles)) id)
   "Handle dynamic unregistration of workspace/didChangeWatchedFiles."
-  (mapc #'file-notify-rm-watch (gethash id (eglot--file-watches server)))
-  (remhash id (eglot--file-watches server))
+  (maphash (lambda (dir watch-and-ids)
+             (setcdr watch-and-ids (delete id (cdr watch-and-ids)))
+             (when (null (cdr watch-and-ids))
+               (file-notify-rm-watch (car watch-and-ids))
+               (remhash dir (eglot--file-watches server))))
+           (eglot--file-watches server))
   (list t "OK"))
 
 
@@ -3758,8 +3773,9 @@ If NOERROR, return predicate, else erroring function."
                      (if peg-after-p
                          (make-overlay (point) (1+ (point)) nil t)
                        (make-overlay (1- (point)) (point) nil nil nil)))
-                   (do-it (label lpad rpad firstp)
-                     (let* ((tweak-cursor-p (and firstp peg-after-p))
+                   (do-it (label lpad rpad i n)
+                     (let* ((firstp (zerop i))
+                            (tweak-cursor-p (and firstp peg-after-p))
                             (ov (make-ov))
                             (text (concat lpad label rpad)))
                        (when tweak-cursor-p (put-text-property 0 1 'cursor 1 text))
@@ -3770,17 +3786,18 @@ If NOERROR, return predicate, else erroring function."
                                              (1 'eglot-type-hint-face)
                                              (2 'eglot-parameter-hint-face)
                                              (_ 'eglot-inlay-hint-face))))
+                       (overlay-put ov 'priority (if peg-after-p i (- n i)))
                        (overlay-put ov 'eglot--inlay-hint t)
                        (overlay-put ov 'evaporate t)
                        (overlay-put ov 'eglot--overlay t))))
-                (if (stringp label) (do-it label left-pad right-pad t)
+                (if (stringp label) (do-it label left-pad right-pad 0 1)
                   (cl-loop
                    for i from 0 for ldetail across label
                    do (eglot--dbind ((InlayHintLabelPart) value) ldetail
                         (do-it value
                                (and (zerop i) left-pad)
                                (and (= i (1- (length label))) right-pad)
-                               (zerop i))))))))))
+                               i (length label))))))))))
     (jsonrpc-async-request
      (eglot--current-server-or-lose)
      :textDocument/inlayHint

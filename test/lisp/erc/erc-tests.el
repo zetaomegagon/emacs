@@ -269,6 +269,110 @@
       (kill-buffer "bob")
       (kill-buffer "ServNet"))))
 
+(ert-deftest erc--refresh-prompt ()
+  (let* ((counter 0)
+         (erc-prompt (lambda ()
+                       (format "%s %d>"
+                               (erc-format-target-and/or-network)
+                               (cl-incf counter))))
+         erc-accidental-paste-threshold-seconds
+         erc-insert-modify-hook
+         erc--input-review-functions
+         erc-send-completed-hook)
+
+    (ert-info ("Server buffer")
+      (with-current-buffer (get-buffer-create "ServNet")
+        (erc-tests--send-prep)
+        (goto-char erc-insert-marker)
+        (should (looking-at-p "ServNet 3>"))
+        (erc-tests--set-fake-server-process "sleep" "1")
+        (set-process-sentinel erc-server-process #'ignore)
+        (setq erc-network 'ServNet
+              erc-server-current-nick "tester"
+              erc-networks--id (erc-networks--id-create nil)
+              erc-server-users (make-hash-table :test 'equal))
+        (set-process-query-on-exit-flag erc-server-process nil)
+        ;; Incoming message redraws prompt
+        (erc-display-message nil 'notice nil "Welcome")
+        (should (looking-at-p (rx "*** Welcome")))
+        (forward-line)
+        (should (looking-at-p "ServNet 4>"))
+        ;; Say something
+        (goto-char erc-input-marker)
+        (insert "Howdy")
+        (erc-send-current-line)
+        (save-excursion (forward-line -1)
+                        (should (looking-at "No target"))
+                        (forward-line -1)
+                        (should (looking-at "<tester> Howdy")))
+        (should (looking-back "ServNet 6> "))
+        (should (= erc-input-marker (point)))
+        ;; Space after prompt is unpropertized
+        (should (get-text-property (1- erc-input-marker) 'erc-prompt))
+        (should-not (get-text-property erc-input-marker 'erc-prompt))
+        ;; No sign of old prompts
+        (save-excursion
+          (goto-char (point-min))
+          (should-not (search-forward (rx (any "3-5") ">") nil t)))))
+
+    (ert-info ("Channel buffer")
+      (with-current-buffer (get-buffer-create "#chan")
+        (erc-tests--send-prep)
+        (goto-char erc-insert-marker)
+        (should (looking-at-p "#chan 9>"))
+        (goto-char erc-input-marker)
+        (setq erc-server-process (buffer-local-value 'erc-server-process
+                                                     (get-buffer "ServNet"))
+              erc-networks--id (erc-with-server-buffer erc-networks--id)
+              erc--target (erc--target-from-string "#chan")
+              erc-default-recipients (list "#chan")
+              erc-channel-users (make-hash-table :test 'equal))
+        (erc-update-current-channel-member "alice" "alice")
+        (erc-update-current-channel-member "bob" "bob")
+        (erc-update-current-channel-member "tester" "tester")
+        (erc-display-message nil nil (current-buffer)
+                             (erc-format-privmessage "alice" "Hi" nil t))
+        (should (looking-back "#chan@ServNet 10> "))
+        (goto-char erc-input-marker)
+        (insert "Howdy")
+        (erc-send-current-line)
+        (save-excursion (forward-line -1)
+                        (should (looking-at "<tester> Howdy")))
+        (should (looking-back "#chan@ServNet 11> "))
+        (should (= (point) erc-input-marker))
+        (insert "/query bob")
+        (erc-send-current-line)
+        ;; Query does not redraw (nor /help, only message input)
+        (should (looking-back "#chan@ServNet 11> "))
+        ;; No sign of old prompts
+        (save-excursion
+          (goto-char (point-min))
+          (should-not (search-forward (rx (or "9" "10") ">") nil t)))))
+
+    (ert-info ("Query buffer")
+      (with-current-buffer (get-buffer "bob")
+        (goto-char erc-insert-marker)
+        (should (looking-at-p "bob@ServNet 14>"))
+        (goto-char erc-input-marker)
+        (erc-display-message nil nil (current-buffer)
+                             (erc-format-privmessage "bob" "Hi" nil t))
+        (should (looking-back "bob@ServNet 15> "))
+        (goto-char erc-input-marker)
+        (insert "Howdy")
+        (erc-send-current-line)
+        (save-excursion (forward-line -1)
+                        (should (looking-at "<tester> Howdy")))
+        (should (looking-back "bob@ServNet 16> "))
+        ;; No sign of old prompts
+        (save-excursion
+          (goto-char (point-min))
+          (should-not (search-forward (rx (or "14" "15") ">") nil t)))))
+
+    (when noninteractive
+      (kill-buffer "#chan")
+      (kill-buffer "bob")
+      (kill-buffer "ServNet"))))
+
 (ert-deftest erc--initialize-markers ()
   (let ((proc (start-process "true" (current-buffer) "true"))
         erc-modules
@@ -398,309 +502,6 @@
 
     (dolist (b '("server" "other" "#chan" "#foo" "#fake"))
       (kill-buffer b))))
-
-(defun erc-tests--run-in-term (&optional debug)
-  (let* ((default-directory (getenv "EMACS_TEST_DIRECTORY"))
-         (emacs (expand-file-name invocation-name invocation-directory))
-         (process-environment (cons "ERC_TESTS_SUBPROCESS=1"
-                                    process-environment))
-         (name (ert-test-name (ert-running-test)))
-         (temp-file (make-temp-file "erc-term-test-"))
-         (cmd `(let ((stats 1))
-                 (setq enable-dir-local-variables nil)
-                 (unwind-protect
-                     (setq stats (ert-run-tests-batch ',name))
-                   (unless ',debug
-                     (let ((buf (with-current-buffer (messages-buffer)
-                                  (buffer-string))))
-                       (with-temp-file ,temp-file
-                         (insert buf)))
-                     (kill-emacs (ert-stats-completed-unexpected stats))))))
-         ;; `ert-test' object in Emacs 29 has a `file-name' field
-         (file-name (symbol-file name 'ert--test))
-         (default-directory (expand-file-name (file-name-directory file-name)))
-         (package (if-let* ((found (getenv "ERC_PACKAGE_NAME"))
-                            ((string-prefix-p "erc-" found)))
-                      (intern found)
-                    'erc))
-         (setup (and (featurep 'compat)
-                     `(progn
-                        (require 'package)
-                        (let ((package-load-list '((compat t) (,package t))))
-                          (package-initialize)))))
-         ;; Make subprocess terminal bigger than controlling.
-         (buf (cl-letf (((symbol-function 'window-screen-lines)
-                         (lambda () 20))
-                        ((symbol-function 'window-max-chars-per-line)
-                         (lambda () 40)))
-                (make-term (symbol-name name) emacs nil "-Q" "-nw"
-                           "-eval" (prin1-to-string setup)
-                           "-l" file-name "-eval" (format "%S" cmd))))
-         (proc (get-buffer-process buf))
-         (err (lambda ()
-                (with-temp-buffer
-                  (insert-file-contents temp-file)
-                  (message "Subprocess: %s" (buffer-string))
-                  (delete-file temp-file)))))
-    (with-current-buffer buf
-      (set-process-query-on-exit-flag proc nil)
-      (with-timeout (10 (funcall err) (error "Timed out awaiting result"))
-        (while (process-live-p proc)
-          (accept-process-output proc 0.1)))
-      (while (accept-process-output proc))
-      (goto-char (point-min))
-      ;; Otherwise gives process exited abnormally with exit-code >0
-      (unless (search-forward (format "Process %s finished" name) nil t)
-        (funcall err)
-        (ert-fail (when (search-forward "exited" nil t)
-                    (buffer-substring-no-properties (line-beginning-position)
-                                                    (line-end-position)))))
-      (delete-file temp-file)
-      (when noninteractive
-        (kill-buffer)))))
-
-(defun erc-tests--servars (source &rest vars)
-  (unless (bufferp source)
-    (setq source (get-buffer source)))
-  (dolist (var vars)
-    (should (local-variable-if-set-p var))
-    (set var (buffer-local-value var source))))
-
-(defun erc-tests--erc-reuse-frames (test &optional debug)
-  (if (and (or debug noninteractive) (not (getenv "ERC_TESTS_SUBPROCESS")))
-      (progn
-        (when (memq system-type '(windows-nt ms-dos))
-          (ert-skip "System must be UNIX"))
-        (erc-tests--run-in-term debug))
-    (should-not erc-frame-dedicated-flag)
-    (should (eq erc-reuse-frames t))
-    (let ((erc-join-buffer 'frame)
-          (erc-reuse-frames t)
-          (erc-frame-alist nil)
-          (orig-frame (selected-frame))
-          erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook)
-      (delete-other-frames)
-      (delete-other-windows)
-      (set-window-buffer (selected-window) "*scratch*")
-      (funcall test orig-frame)
-      (delete-other-frames orig-frame)
-      (delete-other-windows))))
-
-;; TODO add cases for frame-display behavior while reconnecting
-
-(defun erc-tests--erc-reuse-frames--t (_)
-  (ert-info ("New server buffer creates and raises second frame")
-    (with-current-buffer (generate-new-buffer "server")
-      (erc-mode)
-      (setq erc-server-process (start-process "server"
-                                              (current-buffer) "sleep" "10")
-            erc-frame-alist (cons '(name . "server") default-frame-alist)
-            erc-network 'foonet
-            erc-networks--id (erc-networks--id-create nil)
-            erc--server-last-reconnect-count 0)
-      (set-process-buffer erc-server-process (current-buffer))
-      (set-process-query-on-exit-flag erc-server-process nil)
-      (should-not (get-buffer-window (current-buffer) t))
-      (erc-setup-buffer (current-buffer))
-      (should (equal "server" (frame-parameter (window-frame) 'name)))
-      (should (get-buffer-window (current-buffer) t))))
-
-  (ert-info ("New channel creates and raises third frame")
-    (with-current-buffer (generate-new-buffer "#chan")
-      (erc-mode)
-      (erc-tests--servars "server" 'erc-server-process 'erc-networks--id
-                          'erc-network)
-      (setq erc-frame-alist (cons '(name . "#chan") default-frame-alist)
-            erc-default-recipients '("#chan"))
-      (should-not (get-buffer-window (current-buffer) t))
-      (erc-setup-buffer (current-buffer))
-      (should (equal "#chan" (frame-parameter (window-frame) 'name)))
-      (should (get-buffer-window (current-buffer) t))
-      (should (cddr (frame-list))))))
-
-(ert-deftest erc-reuse-frames--t ()
-  :tags '(:unstable :expensive-test)
-  (erc-tests--erc-reuse-frames
-   (lambda (orig-frame)
-     (erc-tests--erc-reuse-frames--t orig-frame)
-     (dolist (b '("server" "#chan"))
-       (kill-buffer b)))))
-
-(defun erc-tests--erc-reuse-frames--displayed-single (_ server-name chan-name)
-
-  (should (eq erc-reuse-frames 'displayed))
-
-  (ert-info ("New server buffer shown in existing frame")
-    (with-current-buffer (generate-new-buffer server-name)
-      (erc-mode)
-      (setq erc-server-process (start-process server-name (current-buffer)
-                                              "sleep" "10")
-            erc-frame-alist (cons `(name . ,server-name) default-frame-alist)
-            erc-network (make-symbol server-name)
-            erc-server-current-nick "tester"
-            erc-networks--id (erc-networks--id-create nil)
-            erc--server-last-reconnect-count 0)
-      (set-process-buffer erc-server-process (current-buffer))
-      (set-process-query-on-exit-flag erc-server-process nil)
-      (should-not (get-buffer-window (current-buffer) t))
-      (erc-setup-buffer (current-buffer))
-      (should-not (equal server-name (frame-parameter (window-frame) 'name)))
-      ;; New server buffer window appears in split below ERT/scratch
-      (should (get-buffer-window (current-buffer) t))))
-
-  (ert-info ("New channel shown in existing frame")
-    (with-current-buffer (generate-new-buffer chan-name)
-      (erc-mode)
-      (erc-tests--servars server-name 'erc-server-process 'erc-networks--id
-                          'erc-network)
-      (setq erc-frame-alist (cons `(name . ,chan-name) default-frame-alist)
-            erc-default-recipients (list chan-name))
-      (should-not (get-buffer-window (current-buffer) t))
-      (erc-setup-buffer (current-buffer))
-      (should-not (equal chan-name (frame-parameter (window-frame) 'name)))
-      ;; New channel buffer replaces server in lower window
-      (should (get-buffer-window (current-buffer) t))
-      (should-not (get-buffer-window server-name t)))))
-
-(ert-deftest erc-reuse-frames--displayed-single ()
-  :tags '(:unstable :expensive-test)
-  (erc-tests--erc-reuse-frames
-   (lambda (orig-frame)
-     (let ((erc-reuse-frames 'displayed))
-       (erc-tests--erc-reuse-frames--displayed-single orig-frame
-                                                      "server" "#chan")
-       (should-not (cdr (frame-list))))
-     (dolist (b '("server" "#chan"))
-       (kill-buffer b)))))
-
-(defun erc-tests--assert-server-split (buffer-or-name frame-name)
-  ;; Assert current buffer resides on one side of a horizontal split
-  ;; in the "server" frame but is not selected.
-  (let* ((buffer-window (get-buffer-window buffer-or-name t))
-         (buffer-frame (window-frame buffer-window)))
-    (should (equal frame-name (frame-parameter buffer-frame 'name)))
-    (should (memq buffer-window (car-safe (window-tree buffer-frame))))
-    (should-not (eq buffer-window (frame-selected-window)))
-    buffer-frame))
-
-(defun erc-tests--erc-reuse-frames--displayed-double (_)
-  (should (eq erc-reuse-frames 'displayed))
-
-  (make-frame '((name . "other")))
-  (select-frame (make-frame '((name . "server"))) 'no-record)
-  (set-window-buffer (selected-window) "*scratch*") ; invokes `erc'
-
-  ;; A user invokes an entry point and switches immediately to a new
-  ;; frame before autojoin kicks in (bug#55540).
-
-  (ert-info ("New server buffer shown in selected frame")
-    (with-current-buffer (generate-new-buffer "server")
-      (erc-mode)
-      (setq erc-server-process (start-process "server" (current-buffer)
-                                              "sleep" "10")
-            erc-network 'foonet
-            erc-server-current-nick "tester"
-            erc-networks--id (erc-networks--id-create nil)
-            erc--server-last-reconnect-count 0)
-      (set-process-buffer erc-server-process (current-buffer))
-      (set-process-query-on-exit-flag erc-server-process nil)
-      (should-not (get-buffer-window (current-buffer) t))
-      (erc-setup-buffer (current-buffer))
-      (should (equal "server" (frame-parameter (window-frame) 'name)))
-      (should (get-buffer-window (current-buffer) t))))
-
-  (select-frame-by-name "other")
-
-  (ert-info ("New channel shown in dedicated frame")
-    (with-current-buffer (generate-new-buffer "#chan")
-      (erc-mode)
-      (erc-tests--servars "server" 'erc-server-process 'erc-networks--id
-                          'erc-network)
-      (setq erc-frame-alist (cons '(name . "#chan") default-frame-alist)
-            erc-default-recipients '("#chan"))
-      (should-not (get-buffer-window (current-buffer) t))
-      (erc-setup-buffer (current-buffer))
-      (erc-tests--assert-server-split (current-buffer) "server")
-      ;; New channel buffer replaces server in lower window of other frame
-      (should-not (get-buffer-window "server" t)))))
-
-(ert-deftest erc-reuse-frames--displayed-double ()
-  :tags '(:unstable :expensive-test)
-  (erc-tests--erc-reuse-frames
-   (lambda (orig-frame)
-     (let ((erc-reuse-frames 'displayed))
-       (erc-tests--erc-reuse-frames--displayed-double orig-frame))
-     (dolist (b '("server" "#chan"))
-       (kill-buffer b)))))
-
-;; If a frame showing ERC buffers exists among other frames, new,
-;; additional connections will use the existing IRC frame.  However,
-;; if two or more frames exist with ERC buffers unique to a particular
-;; connection, the correct frame will be found.
-
-(defun erc-tests--erc-reuse-frames--displayed-full (orig-frame)
-  (erc-tests--erc-reuse-frames--displayed-double orig-frame)
-  ;; Server buffer is not displayed because #chan has replaced it in
-  ;; the "server" frame, which is not selected.
-  (should (equal "other" (frame-parameter (window-frame) 'name)))
-  (erc-tests--erc-reuse-frames--displayed-single orig-frame "ircd" "#spam")
-  (should (equal "other" (frame-parameter (window-frame) 'name)))
-
-  ;; Buffer "#spam" has replaced "ircd", which earlier replaced
-  ;; "#chan" in frame "server".  But this is confusing, so...
-  (ert-info ("Arrange windows for second connection in other frame")
-    (set-window-buffer (selected-window) "ircd")
-    (split-window-below)
-    (set-window-buffer (next-window) "#spam")
-    (should (equal (cddar (window-tree))
-                   (list (get-buffer-window "ircd" t)
-                         (get-buffer-window "#spam" t)))))
-
-  (ert-info ("Arrange windows for first connection in server frame")
-    (select-frame-by-name "server")
-    (set-window-buffer (selected-window) "server")
-    (set-window-buffer (next-window) "#chan")
-    (should (equal (cddar (window-tree))
-                   (list (get-buffer-window "server" t)
-                         (get-buffer-window "#chan" t)))))
-
-  ;; Select original ERT frame
-  (ert-info ("New target for connection server finds appropriate frame")
-    (select-frame orig-frame 'no-record)
-    (with-current-buffer (window-buffer (selected-window))
-      (should (member (buffer-name) '("*ert*" "*scratch*")))
-      (with-current-buffer (generate-new-buffer "alice")
-        (erc-mode)
-        (erc-tests--servars "server" 'erc-server-process 'erc-networks--id)
-        (setq erc-default-recipients '("alice"))
-        (should-not (get-buffer-window (current-buffer) t))
-        (erc-setup-buffer (current-buffer))
-        ;; Window created in frame "server"
-        (should (eq (selected-frame) orig-frame))
-        (erc-tests--assert-server-split (current-buffer) "server"))))
-
-  (ert-info ("New target for connection ircd finds appropriate frame")
-    (select-frame orig-frame 'no-record)
-    (with-current-buffer (window-buffer (selected-window))
-      (should (member (buffer-name) '("*ert*" "*scratch*")))
-      (with-current-buffer (generate-new-buffer "bob")
-        (erc-mode)
-        (erc-tests--servars "ircd" 'erc-server-process 'erc-networks--id)
-        (setq erc-default-recipients '("bob"))
-        (should-not (get-buffer-window (current-buffer) t))
-        (erc-setup-buffer (current-buffer))
-        ;; Window created in frame "other"
-        (should (eq (selected-frame) orig-frame))
-        (erc-tests--assert-server-split (current-buffer) "other")))))
-
-(ert-deftest erc-reuse-frames--displayed-full ()
-  :tags '(:unstable :expensive-test)
-  (erc-tests--erc-reuse-frames
-   (lambda (orig-frame)
-     (let ((erc-reuse-frames 'displayed))
-       (erc-tests--erc-reuse-frames--displayed-full orig-frame))
-     (dolist (b '("server" "ircd" "bob" "alice" "#spam" "#chan"))
-       (kill-buffer b)))))
 
 (ert-deftest erc-lurker-maybe-trim ()
   (let (erc-lurker-trim-nicks
@@ -1986,6 +1787,39 @@
   (should (eq (erc--normalize-module-symbol 'timestamp) 'stamp))
   (should (eq (erc--normalize-module-symbol 'nickserv) 'services)))
 
+(defun erc-tests--assert-printed-in-subprocess (code expected)
+  (let* ((package (if-let* ((found (getenv "ERC_PACKAGE_NAME"))
+                            ((string-prefix-p "erc-" found)))
+                      (intern found)
+                    'erc))
+         ;; This is for integrations testing with managed configs
+         ;; ("starter kits") that use a different package manager.
+         (init (and-let* ((found (getenv "ERC_TESTS_INIT"))
+                          (files (split-string found ","))
+                          ((seq-every-p #'file-exists-p files)))
+                 (mapcan (lambda (f) (list "-l" f)) files)))
+         (prog
+          `(progn
+             ,@(and (not init) (featurep 'compat)
+                    `((require 'package)
+                      (let ((package-load-list '((compat t) (,package t))))
+                        (package-initialize))))
+             (require 'erc)
+             (cl-assert (equal erc-version ,erc-version) t)
+             ,code))
+         (proc (apply #'start-process
+                      (symbol-name (ert-test-name (ert-running-test)))
+                      (current-buffer)
+                      (concat invocation-directory invocation-name)
+                      `("-batch" ,@(or init '("-Q"))
+                        "-eval" ,(format "%S" prog)))))
+    (set-process-query-on-exit-flag proc t)
+    (while (accept-process-output proc 10))
+    (goto-char (point-min))
+    (unless (equal (read (current-buffer)) expected)
+      (message "Exepcted: %S\nGot: %s" expected (buffer-string))
+      (ert-fail "Mismatch"))))
+
 ;; Worrying about which library a module comes from is mostly not
 ;; worth the hassle so long as ERC can find its minor mode.  However,
 ;; bugs involving multiple modules living in the same library may slip
@@ -1993,41 +1827,37 @@
 ;; of its place in the default ordering.
 
 (ert-deftest erc--find-mode ()
-  (let* ((package (if-let* ((found (getenv "ERC_PACKAGE_NAME"))
-                            ((string-prefix-p "erc-" found)))
-                      (intern found)
-                    'erc))
-         (prog
-          `(,@(and (featurep 'compat)
-                   `((progn
-                       (require 'package)
-                       (let ((package-load-list '((compat t) (,package t))))
-                         (package-initialize)))))
-            (require 'erc)
-            (let ((mods (mapcar #'cadddr
-                                (cdddr (get 'erc-modules 'custom-type))))
-                  moded)
-              (setq mods
-                    (sort mods (lambda (a b) (if (zerop (random 2)) a b))))
-              (dolist (mod mods)
-                (unless (keywordp mod)
-                  (push (if-let ((mode (erc--find-mode mod)))
-                            mod
-                          (list :missing mod))
-                        moded)))
-              (message "%S"
-                       (sort moded
-                             (lambda (a b)
-                               (string< (symbol-name a) (symbol-name b))))))))
-         (proc (start-process "erc--module-mode-autoloads"
-                              (current-buffer)
-                              (concat invocation-directory invocation-name)
-                              "-batch" "-Q"
-                              "-eval" (format "%S" (cons 'progn prog)))))
-    (set-process-query-on-exit-flag proc t)
-    (while (accept-process-output proc 10))
-    (goto-char (point-min))
-    (should (equal (read (current-buffer)) erc-tests--modules))))
+  (erc-tests--assert-printed-in-subprocess
+   `(let ((mods (mapcar #'cadddr (cdddr (get 'erc-modules 'custom-type))))
+          moded)
+      (setq mods (sort mods (lambda (a b) (if (zerop (random 2)) a b))))
+      (dolist (mod mods)
+        (unless (keywordp mod)
+          (push (if-let ((mode (erc--find-mode mod))) mod (list :missing mod))
+                moded)))
+      (message "%S"
+               (sort moded (lambda (a b)
+                             (string< (symbol-name a) (symbol-name b))))))
+   erc-tests--modules))
+
+(ert-deftest erc--essential-hook-ordering ()
+  (erc-tests--assert-printed-in-subprocess
+   '(progn
+      (erc-update-modules)
+      (message "%S"
+               (list :erc-insert-modify-hook erc-insert-modify-hook
+                     :erc-send-modify-hook erc-send-modify-hook)))
+
+   '( :erc-insert-modify-hook (erc-controls-highlight ; 0
+                               erc-button-add-buttons ; 30
+                               erc-fill ; 40
+                               erc-match-message ; 50
+                               erc-add-timestamp) ; 60
+
+      :erc-send-modify-hook ( erc-controls-highlight ; 0
+                              erc-button-add-buttons ; 30
+                              erc-fill ; 40
+                              erc-add-timestamp)))) ; 50
 
 (ert-deftest erc-migrate-modules ()
   (should (equal (erc-migrate-modules '(autojoin timestamp button))

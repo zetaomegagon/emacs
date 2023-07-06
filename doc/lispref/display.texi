@@ -1792,34 +1792,43 @@ of them:
 @table @code
 @item priority
 @kindex priority @r{(overlay property)}
-This property's value determines the priority of the overlay.
-If you want to specify a priority value, use either @code{nil}
-(or zero), or a positive integer.  Any other value has undefined behavior.
+This property's value determines the priority of the overlay.  If you
+want to specify a priority value, use either @code{nil} (or zero), or
+a positive integer, or a cons of two values.  Any other value triggers
+undefined behavior.
 
 The priority matters when two or more overlays cover the same
 character and both specify the same property with different values;
-the one whose @code{priority} value is larger overrides the other.
+the one whose @code{priority} value is higher overrides the other.
 (For the @code{face} property, the higher priority overlay's value
-does not completely override the other value; instead, its face
-attributes override the face attributes of the @code{face} property
-whose priority is lower.)  If two overlays have the same priority
-value, and one is nested in the other, then the inner one will prevail
-over the outer one.  If neither is nested in the other then you should
-not make assumptions about which overlay will prevail.
+does not completely override the other value; instead, its individual
+face attributes override the corresponding face attributes of the
+@code{face} property whose priority is lower.)  If two overlays have
+the same priority value, and one is ``nested'' in the other (i.e.,
+covers fewer buffer or string positions), then the inner one will
+prevail over the outer one.  If neither is nested in the other then
+you should not make assumptions about which overlay will prevail.
+
+When a Lisp program puts overlays with defined priorities on text that
+might have overlays without priorities, this could cause undesirable
+results, because any overlay with a positive priority value will
+override all the overlays without a priority.  Since most Emacs
+features that use overlays don't specify priorities for their
+overlays, integer priorities should be used with care.  Instead of
+using integer priorities and risk overriding other overlays, you can
+use priority values of the form @w{@code{(@var{primary} . @var{secondary})}},
+where the @var{primary} value is used as described above, and
+@var{secondary} is the fallback value used when @var{primary} and the
+nesting considerations fail to resolve the precedence between
+overlays.  In particular, priority value @w{@code{(nil . @var{n})}},
+with @var{n} a positive integer, allows to have the overlays ordered
+by priority when necessary without completely overriding other
+overlays.
 
 Currently, all overlays take priority over text properties.
 
-Note that Emacs sometimes uses non-numeric priority values for some of
-its internal overlays, so do not try to do arithmetic on the priority
-of an overlay (unless it is one that you created).  In particular, the
-overlay used for showing the region uses a priority value of the form
-@w{@code{(@var{primary} . @var{secondary})}}, where the @var{primary}
-value is used as described above, and @var{secondary} is the fallback
-value used when @var{primary} and the nesting considerations fail to
-resolve the precedence between overlays.  However, you are advised not
-to design Lisp programs based on this implementation detail; if you
-need to put overlays in priority order, use the @var{sorted} argument
-of @code{overlays-at}.  @xref{Finding Overlays}.
+If you need to put overlays in priority order, use the @var{sorted}
+argument of @code{overlays-at}.  @xref{Finding Overlays}.
 
 @item window
 @kindex window @r{(overlay property)}
@@ -3329,8 +3338,8 @@ enough to the overlay, Emacs applies the face or face attributes
 specified by the @code{mouse-face} property instead.  @xref{Overlay
 Properties}.
 
-When multiple overlays cover one character, an overlay with higher
-priority overrides those with lower priority.  @xref{Overlays}.
+When multiple overlays cover the same character, an overlay with
+higher priority overrides those with lower priority.  @xref{Overlays}.
 
 @item
 If the text contains a @code{face} or @code{mouse-face} property,
@@ -6530,7 +6539,7 @@ specified, draw a polyline.
 @deffn Command horizontal-lineto x-coordinates
 Draw a horizontal line from the current point to the first element in
 @var{x-coordinates}.  Specifying multiple coordinates is possible,
-although usually this doesn’t make sense.
+although this usually doesn't make sense.
 
 @lisp
 (svg-path svg '((moveto ((100 . 200)))
@@ -6554,7 +6563,7 @@ Using the first element in @var{coordinate-sets}, draw a cubic Bézier
 curve from the current point.  If there are multiple coordinate sets,
 draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x1} @var{y1} @var{x2} @var{y2} @var{x} @var{y})}, where
-@w{(@var{x}, @var{y})} is the curve’s end point.  @w{(@var{x1},
+@w{(@var{x}, @var{y})} is the curve's end point.  @w{(@var{x1},
 @var{y1})} and @w{(@var{x2}, @var{y2})} are control points at the
 beginning and at the end, respectively.
 
@@ -6571,7 +6580,7 @@ Using the first element in @var{coordinate-sets}, draw a cubic Bézier
 curve from the current point.  If there are multiple coordinate sets,
 draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x2} @var{y2} @var{x} @var{y})}, where @w{(@var{x},
-@var{y})} is the curve’s end point and @w{(@var{x2}, @var{y2})} is the
+@var{y})} is the curve's end point and @w{(@var{x2}, @var{y2})} is the
 corresponding control point.  The first control point is the
 reflection of the second control point of the previous command
 relative to the current point, if that command was @command{curveto}
@@ -6591,7 +6600,7 @@ Using the first element in @var{coordinate-sets}, draw a quadratic
 Bézier curve from the current point.  If there are multiple coordinate
 sets, draw a polybezier.  Each coordinate set is a list of the form
 @code{(@var{x1} @var{y1} @var{x} @var{y})}, where @w{(@var{x},
-@var{y})} is the curve’s end point and @w{(@var{x1}, @var{y1})} is the
+@var{y})} is the curve's end point and @w{(@var{x1}, @var{y1})} is the
 control point.
 
 @lisp
@@ -6608,7 +6617,7 @@ control point.
 Using the first element in @var{coordinate-sets}, draw a quadratic
 Bézier curve from the current point.  If there are multiple coordinate
 sets, draw a polybezier.  Each coordinate set is a list of the form
-@code{(@var{x} @var{y})}, where @w{(@var{x}, @var{y})} is the curve’s
+@code{(@var{x} @var{y})}, where @w{(@var{x}, @var{y})} is the curve's
 end point.  The control point is the reflection of the control point
 of the previous command relative to the current point, if that command
 was @command{quadratic-bezier-curveto} or
@@ -7269,7 +7278,7 @@ window.
 @item :width
 This is only valid for @code{image} icons, and can be either a number
 (which specifies the width in pixels), or the symbol @code{font},
-which will use the width in pixels of the current buffer’s default
+which will use the width in pixels of the current buffer's default
 face font.
 @end table
 
@@ -8527,7 +8536,7 @@ the effect of setting @code{ctl-arrow} to a non-@code{nil} value
                     (make-glyph-code (+ i 64) 'escape-glyph)))))
 (aset disptab 127
       (vector (make-glyph-code ?^ 'escape-glyph)
-              (make-glyph-code ?? 'escape-glyph)))))
+              (make-glyph-code ?? 'escape-glyph)))
 @end example
 
 @defun display-table-slot display-table slot

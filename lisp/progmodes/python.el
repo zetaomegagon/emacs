@@ -415,7 +415,6 @@ instead."
   "Python mode specialized rx macro.
 This variant of `rx' supports common Python named REGEXPS."
   `(rx-let ((sp-bsnl (or space (and ?\\ ?\n)))
-            (sp-nl (or space (and (? ?\\) ?\n)))
             (block-start       (seq symbol-start
                                     (or "def" "class" "if" "elif" "else" "try"
                                         "except" "finally" "for" "while" "with"
@@ -650,9 +649,9 @@ the {...} holes that appear within f-strings."
              finally return (and result-valid result))))
 
 (defvar python-font-lock-keywords-level-1
-  `((,(python-rx symbol-start "def" (1+ sp-bsnl) (group symbol-name))
+  `((,(python-rx symbol-start "def" (1+ space) (group symbol-name))
      (1 font-lock-function-name-face))
-    (,(python-rx symbol-start "class" (1+ sp-bsnl) (group symbol-name))
+    (,(python-rx symbol-start "class" (1+ space) (group symbol-name))
      (1 font-lock-type-face)))
   "Font lock keywords to use in `python-mode' for level 1 decoration.
 
@@ -792,12 +791,12 @@ sign in chained assignment."
     ;;   [*a] = 5, 6
     ;; are handled separately below
     (,(python-font-lock-assignment-matcher
-        (python-rx (? (or "[" "(") (* sp-nl))
-                   grouped-assignment-target (* sp-nl) ?, (* sp-nl)
-                   (* assignment-target (* sp-nl) ?, (* sp-nl))
-                   (? assignment-target (* sp-nl))
-                   (? ?, (* sp-nl))
-                   (? (or ")" "]") (* sp-bsnl))
+        (python-rx (? (or "[" "(") (* space))
+                   grouped-assignment-target (* space) ?, (* space)
+                   (* assignment-target (* space) ?, (* space))
+                   (? assignment-target (* space))
+                   (? ?, (* space))
+                   (? (or ")" "]") (* space))
                    (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face)
@@ -813,9 +812,9 @@ sign in chained assignment."
     ;;   c: Collection = {1, 2, 3}
     ;;   d: Mapping[int, str] = {1: 'bar', 2: 'baz'}
     (,(python-font-lock-assignment-matcher
-       (python-rx (or line-start ?\;) (* sp-bsnl)
-                  grouped-assignment-target (* sp-bsnl)
-                  (? ?: (* sp-bsnl) (+ not-simple-operator) (* sp-bsnl))
+       (python-rx (or line-start ?\;) (* space)
+                  grouped-assignment-target (* space)
+                  (? ?: (* space) (+ not-simple-operator) (* space))
                   (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face))
@@ -824,10 +823,10 @@ sign in chained assignment."
     ;;   [a] = 5,
     ;;   [*a] = 5, 6
     (,(python-font-lock-assignment-matcher
-       (python-rx (or line-start ?\; ?=) (* sp-bsnl)
-                  (or "[" "(") (* sp-nl)
-                  grouped-assignment-target (* sp-nl)
-                  (or ")" "]") (* sp-bsnl)
+       (python-rx (or line-start ?\; ?=) (* space)
+                  (or "[" "(") (* space)
+                  grouped-assignment-target (* space)
+                  (or ")" "]") (* space)
                   (group assignment-operator)))
      (1 font-lock-variable-name-face)
      (2 'font-lock-operator-face))
@@ -869,22 +868,6 @@ decorators, exceptions, and assignments.")
 Which one will be chosen depends on the value of
 `font-lock-maximum-decoration'.")
 
-(defvar font-lock-beg)
-(defvar font-lock-end)
-(defun python-font-lock-extend-region ()
-  "Extend font-lock region to statement boundaries."
-  (let ((beg font-lock-beg)
-        (end font-lock-end))
-    (goto-char beg)
-    (python-nav-beginning-of-statement)
-    (beginning-of-line)
-    (when (< (point) beg)
-      (setq font-lock-beg (point)))
-    (goto-char end)
-    (python-nav-end-of-statement)
-    (when (< end (point))
-      (setq font-lock-end (point)))
-    (or (/= beg font-lock-beg) (/= end font-lock-end))))
 
 (defconst python-syntax-propertize-function
   (syntax-propertize-rules
@@ -1123,7 +1106,7 @@ fontified."
    :language 'python
    `([,@python--treesit-keywords] @font-lock-keyword-face
      ((identifier) @font-lock-keyword-face
-      (:match "^self$" @font-lock-keyword-face)))
+      (:match "\\`self\\'" @font-lock-keyword-face)))
 
    :feature 'definition
    :language 'python
@@ -1423,6 +1406,10 @@ keyword
  - Point is inside a paren from a block start followed by some
    items on the same line.
  - START is the first non space char position *after* the open paren.
+:inside-paren-continuation-line
+ - Point is on a continuation line inside a paren.
+ - START is the position where the previous line (excluding lines
+   for inner parens) starts.
 
 :after-backslash
  - Fallback case when point is after backslash.
@@ -1477,7 +1464,21 @@ keyword
                      (= (line-number-at-pos)
                         (progn
                           (python-util-forward-comment)
-                          (line-number-at-pos))))))))
+                          (line-number-at-pos)))))))
+               (continuation-start
+                (when start
+                  (save-excursion
+                    (forward-line -1)
+                    (back-to-indentation)
+                    ;; Skip inner parens.
+                    (cl-loop with prev-start = (python-syntax-context 'paren)
+                             while (and prev-start (>= prev-start start))
+                             if (= prev-start start)
+                             return (point)
+                             else do (goto-char prev-start)
+                                     (back-to-indentation)
+                                     (setq prev-start
+                                           (python-syntax-context 'paren)))))))
           (when start
             (cond
              ;; Current line only holds the closing paren.
@@ -1493,6 +1494,9 @@ keyword
                 (back-to-indentation)
                 (python-syntax-closing-paren-p))
               (cons :inside-paren-at-closing-nested-paren start))
+             ;; This line is a continuation of the previous line.
+             (continuation-start
+              (cons :inside-paren-continuation-line continuation-start))
              ;; This line starts from an opening block in its own line.
              ((save-excursion
                 (goto-char start)
@@ -1608,7 +1612,8 @@ possibilities can be narrowed to specific indentation points."
         (`(,(or :after-line
                 :after-comment
                 :inside-string
-                :after-backslash) . ,start)
+                :after-backslash
+                :inside-paren-continuation-line) . ,start)
          ;; Copy previous indentation.
          (goto-char start)
          (current-indentation))
@@ -6171,7 +6176,8 @@ Optional argument REGEXP selects variables to clone and defaults
 to \"^python-\"."
   (mapc
    (lambda (pair)
-     (and (symbolp (car pair))
+     (and (consp pair)
+          (symbolp (car pair))
           (string-match (or regexp "^python-")
                         (symbol-name (car pair)))
           (set (make-local-variable (car pair))
@@ -6440,8 +6446,14 @@ REPORT-FN is Flymake's callback function."
 
 ;;; Import management
 (defconst python--list-imports "\
-from isort import find_imports_in_stream, find_imports_in_paths
-from sys import argv, stdin
+from sys import argv, exit, stdin
+
+try:
+    from isort import find_imports_in_stream, find_imports_in_paths
+except ModuleNotFoundError:
+    exit(1)
+except ImportError:
+    exit(2)
 
 query, files, result = argv[1] or None, argv[2:], {}
 
@@ -6495,9 +6507,13 @@ recursively."
                                 (or name "")
                                 (mapcar #'file-local-name source)))))
              lines)
-        (unless (eq 0 status)
+        (cond
+         ((eq 1 status)
           (error "%s exited with status %s (maybe isort is missing?)"
                  python-interpreter status))
+         ((eq 2 status)
+          (error "%s exited with status %s (maybe isort version is <5.7.0?)"
+                 python-interpreter status)))
         (goto-char (point-min))
         (while (not (eobp))
 	  (push (buffer-substring-no-properties (point) (pos-eol))
@@ -6540,9 +6556,13 @@ Return non-nil if the buffer was actually modified."
                                nil (list temp nil) nil
                                "-m" "isort" "-" args))
                 (tick (buffer-chars-modified-tick)))
-            (unless (eq 0 status)
+            (cond
+             ((eq 1 status)
               (error "%s exited with status %s (maybe isort is missing?)"
                      python-interpreter status))
+             ((eq 2 status)
+              (error "%s exited with status %s (maybe isort version is <5.7.0?)"
+                     python-interpreter status)))
             (replace-buffer-contents temp)
             (not (eq tick (buffer-chars-modified-tick)))))))))
 
@@ -6769,8 +6789,6 @@ implementations: `python-mode' and `python-ts-mode'."
                 nil nil nil nil
                 (font-lock-syntactic-face-function
                  . python-font-lock-syntactic-face-function)))
-  (add-hook 'font-lock-extend-region-functions
-            #'python-font-lock-extend-region nil t)
   (setq-local syntax-propertize-function
               python-syntax-propertize-function)
   (setq-local imenu-create-index-function

@@ -136,20 +136,6 @@ STRING, it is skipped so the next STRING occurrence is selected."
            while pos
            collect (cons pos (get-text-property pos 'face))))
 
-(defun python-tests-assert-faces-after-change (content faces search replace)
-  "Assert that font faces for CONTENT are equal to FACES after change.
-All occurrences of SEARCH are changed to REPLACE."
-  (python-tests-with-temp-buffer
-   content
-   ;; Force enable font-lock mode without jit-lock.
-   (rename-buffer "*python-font-lock-test*" t)
-   (let (noninteractive font-lock-support-mode)
-     (font-lock-mode))
-   (while
-       (re-search-forward search nil t)
-     (replace-match replace))
-   (should (equal faces (python-tests-get-buffer-faces)))))
-
 (defun python-tests-self-insert (char-or-str)
   "Call `self-insert-command' for chars in CHAR-OR-STR."
   (let ((chars
@@ -296,13 +282,6 @@ p = (1 + 2)
   (python-tests-assert-faces
    "def 1func():"
    '((1 . font-lock-keyword-face) (4))))
-
-(ert-deftest python-font-lock-keywords-level-1-3 ()
-  (python-tests-assert-faces
-   "def \\
-        func():"
-   '((1 . font-lock-keyword-face) (4)
-     (15 . font-lock-function-name-face) (19))))
 
 (ert-deftest python-font-lock-assignment-statement-1 ()
   (python-tests-assert-faces
@@ -494,129 +473,6 @@ def f(x: CustomInt) -> CustomInt:
      (128 . font-lock-builtin-face) (131)
      (136 . font-lock-operator-face) (137)
      (144 . font-lock-keyword-face) (150))))
-
-(ert-deftest python-font-lock-assignment-statement-multiline-1 ()
-  (python-tests-assert-faces-after-change
-   "
-[
-    a,
-    b
-] # (
-    1,
-    2
-)
-"
-   '((1)
-     (8 . font-lock-variable-name-face) (9)
-     (15 . font-lock-variable-name-face) (16)
-     (19 . font-lock-operator-face) (20))
-   "#" "="))
-
-(ert-deftest python-font-lock-assignment-statement-multiline-2 ()
-  (python-tests-assert-faces-after-change
-   "
-[
-    *a
-] # 5, 6
-"
-   '((1)
-     (8 . font-lock-operator-face)
-     (9 . font-lock-variable-name-face) (10)
-     (13 . font-lock-operator-face) (14))
-   "#" "="))
-
-(ert-deftest python-font-lock-assignment-statement-multiline-3 ()
-  (python-tests-assert-faces-after-change
-   "a\\
-    ,\\
-    b\\
-    ,\\
-    c\\
-    #\\
-    1\\
-    ,\\
-    2\\
-    ,\\
-    3"
-   '((1 . font-lock-variable-name-face) (2)
-     (15 . font-lock-variable-name-face) (16)
-     (29 . font-lock-variable-name-face) (30)
-     (36 . font-lock-operator-face) (37))
-   "#" "="))
-
-(ert-deftest python-font-lock-assignment-statement-multiline-4 ()
-  (python-tests-assert-faces-after-change
-   "a\\
-    :\\
-    int\\
-    #\\
-    5"
-   '((1 . font-lock-variable-name-face) (2)
-     (15 . font-lock-builtin-face) (18)
-     (24 . font-lock-operator-face) (25))
-   "#" "="))
-
-(ert-deftest python-font-lock-assignment-statement-multiline-5 ()
-  (python-tests-assert-faces-after-change
-   "(\\
-    a\\
-)\\
-    #\\
-    5\\
-    ;\\
-    (\\
-    b\\
-    )\\
-    #\\
-    6"
-   '((1)
-     (8 . font-lock-variable-name-face) (9)
-     (18 . font-lock-operator-face) (19)
-     (46 . font-lock-variable-name-face) (47)
-     (60 . font-lock-operator-face) (61))
-   "#" "="))
-
-(ert-deftest python-font-lock-assignment-statement-multiline-6 ()
-  (python-tests-assert-faces-after-change
-   "(
-    a
-)\\
-    #\\
-    5\\
-    ;\\
-    (
-    b
-    )\\
-    #\\
-    6"
-   '((1)
-     (7 . font-lock-variable-name-face) (8)
-     (16 . font-lock-operator-face) (17)
-     (43 . font-lock-variable-name-face) (44)
-     (56 . font-lock-operator-face) (57))
-   "#" "="))
-
-(ert-deftest python-font-lock-operator-1 ()
-  (python-tests-assert-faces
-   "1 << 2 ** 3 == +4%-5|~6&7^8%9"
-   '((1)
-     (3 . font-lock-operator-face) (5)
-     (8 . font-lock-operator-face) (10)
-     (13 . font-lock-operator-face) (15)
-     (16 . font-lock-operator-face) (17)
-     (18 . font-lock-operator-face) (20)
-     (21 . font-lock-operator-face) (23)
-     (24 . font-lock-operator-face) (25)
-     (26 . font-lock-operator-face) (27)
-     (28 . font-lock-operator-face) (29))))
-
-(ert-deftest python-font-lock-operator-2 ()
-  "Keyword operators are font-locked as keywords."
-  (python-tests-assert-faces
-   "is_ is None"
-   '((1)
-     (5 . font-lock-keyword-face) (7)
-     (8 . font-lock-constant-face))))
 
 (ert-deftest python-font-lock-escape-sequence-string-newline ()
   (python-tests-assert-faces
@@ -827,7 +683,7 @@ def long_function_name(
    (should (= (python-indent-calculate-indentation) 8))
    (python-tests-look-at "var_four):")
    (should (eq (car (python-indent-context))
-               :inside-paren-newline-start-from-block))
+               :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 8))
    (python-tests-look-at "print (var_one)")
    (should (eq (car (python-indent-context))
@@ -851,8 +707,8 @@ foo = long_function_name(
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))
    (should (= (python-indent-calculate-indentation) 4))
    (python-tests-look-at "var_three, var_four)")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
-   (should (= (python-indent-calculate-indentation) 4))))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
+   (should (= (python-indent-calculate-indentation) 2))))
 
 (ert-deftest python-indent-hanging-close-paren ()
   "Like first pep8 case, but with hanging close paren." ;; See Bug#20742.
@@ -1008,7 +864,7 @@ data = {
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))
    (should (= (python-indent-calculate-indentation) 4))
    (python-tests-look-at "{")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 4))
    (python-tests-look-at "'objlist': [")
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))
@@ -1020,20 +876,20 @@ data = {
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))
    (should (= (python-indent-calculate-indentation) 16))
    (python-tests-look-at "'name': 'first',")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 16))
    (python-tests-look-at "},")
    (should (eq (car (python-indent-context))
                :inside-paren-at-closing-nested-paren))
    (should (= (python-indent-calculate-indentation) 12))
    (python-tests-look-at "{")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 12))
    (python-tests-look-at "'pk': 2,")
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))
    (should (= (python-indent-calculate-indentation) 16))
    (python-tests-look-at "'name': 'second',")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 16))
    (python-tests-look-at "}")
    (should (eq (car (python-indent-context))
@@ -1077,7 +933,7 @@ data = {'key': {
    (should (eq (car (python-indent-context)) :inside-paren))
    (should (= (python-indent-calculate-indentation) 9))
    (python-tests-look-at "{'pk': 2,")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 8))
    (python-tests-look-at "'name': 'second'}")
    (should (eq (car (python-indent-context)) :inside-paren))
@@ -1110,10 +966,10 @@ data = ('these',
    (should (eq (car (python-indent-context)) :inside-paren))
    (should (= (python-indent-calculate-indentation) 8))
    (forward-line 1)
-   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 8))
    (forward-line 1)
-   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 8))))
 
 (ert-deftest python-indent-inside-paren-4 ()
@@ -1167,7 +1023,7 @@ CHOICES = (('some', 'choice'),
    (should (eq (car (python-indent-context)) :inside-paren))
    (should (= (python-indent-calculate-indentation) 11))
    (forward-line 1)
-   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 11))))
 
 (ert-deftest python-indent-inside-paren-7 ()
@@ -1177,6 +1033,71 @@ CHOICES = (('some', 'choice'),
    (goto-char (point-max))
    ;; This signals an error if the test fails
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))))
+
+(ert-deftest python-indent-inside-paren-8 ()
+  "Test for Bug#63959."
+  (python-tests-with-temp-buffer
+   "
+for a in [  # comment
+          'some',  # Manually indented.
+          'thing']:  # Respect indentation of the previous line.
+"
+   (python-tests-look-at "for a in [  # comment")
+   (should (eq (car (python-indent-context)) :no-indent))
+   (should (= (python-indent-calculate-indentation) 0))
+   (forward-line 1)
+   (should (eq (car (python-indent-context))
+               :inside-paren-newline-start-from-block))
+   (should (= (python-indent-calculate-indentation) 8))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
+   (should (= (python-indent-calculate-indentation) 10))))
+
+(ert-deftest python-indent-inside-paren-9 ()
+  "Test `:inside-paren-continuation-line'."
+  (python-tests-with-temp-buffer
+   "
+a = (((
+    1, 2),
+      3),  # Do not respect the indentation of the previous line
+     4)  # Do not respect the indentation of the previous line
+b = ((
+        1, 2),  # Manually indented
+     3,  # Do not respect the indentation of the previous line
+     4,  # Respect the indentation of the previous line
+        5,  # Manually indented
+        6)  # Respect the indentation of the previous line
+"
+   (python-tests-look-at "a = (((")
+   (should (eq (car (python-indent-context)) :no-indent))
+   (should (= (python-indent-calculate-indentation) 0))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (= (python-indent-calculate-indentation) 4))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (= (python-indent-calculate-indentation) 6))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (= (python-indent-calculate-indentation) 5))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :after-line))
+   (should (= (python-indent-calculate-indentation) 0))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (= (python-indent-calculate-indentation) 4))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren))
+   (should (= (python-indent-calculate-indentation) 5))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
+   (should (= (python-indent-calculate-indentation) 5))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
+   (should (= (python-indent-calculate-indentation) 5))
+   (forward-line 1)
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
+   (should (= (python-indent-calculate-indentation) 8))))
 
 (ert-deftest python-indent-inside-paren-block-1 ()
   "`python-indent-block-paren-deeper' set to nil (default).
@@ -1415,7 +1336,7 @@ objects = Thing.objects.all() \\
    (should (eq (car (python-indent-context)) :inside-paren-newline-start))
    (should (= (python-indent-calculate-indentation) 27))
    (python-tests-look-at "status='bought'")
-   (should (eq (car (python-indent-context)) :inside-paren-newline-start))
+   (should (eq (car (python-indent-context)) :inside-paren-continuation-line))
    (should (= (python-indent-calculate-indentation) 27))
    (python-tests-look-at ") \\")
    (should (eq (car (python-indent-context)) :inside-paren-at-closing-paren))

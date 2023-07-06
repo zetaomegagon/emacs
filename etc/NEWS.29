@@ -65,12 +65,13 @@ cloning its Git repository, compile the files "scanner.c" and
 "parser.c" (sometimes named "scanner.cc" and "parser.cc") in the "src"
 subdirectory of the library's source tree using the C or C++ compiler,
 then link these two files into a shared library named
-"libtree-sitter-LANG.so", where LANG is the name of the language
-supported by the grammar as it is expected by the Emacs major mode
-(for example, "c" for 'c-ts-mode', "cpp" for 'c++-ts-mode', "python"
-for 'python-ts-mode', etc.).  Then place the shared library you've
-built in the same directory where you keep the other shared libraries
-used by Emacs, or in the "tree-sitter" subdirectory of your
+"libtree-sitter-LANG.so" ("libtree-sitter-LANG.dll" on MS-Windows,
+"libtree-sitter-LANG.dylib" on macOS), where LANG is the name of the
+language supported by the grammar as it is expected by the Emacs major
+mode (for example, "c" for 'c-ts-mode', "cpp" for 'c++-ts-mode',
+"python" for 'python-ts-mode', etc.).  Then place the shared library
+you've built in the same directory where you keep the other shared
+libraries used by Emacs, or in the "tree-sitter" subdirectory of your
 'user-emacs-directory', or in a directory mentioned in the variable
 'treesit-extra-load-path'.
 
@@ -78,6 +79,11 @@ You only need to install language grammar libraries required by the
 Emacs modes you will use, as Emacs loads these libraries only when the
 corresponding mode is turned on in some buffer for the first time in
 an Emacs session.
+
+We generally recommend to use the latest versions of grammar libraries
+available from their sites, as these libraries are in constant
+development and occasionally add features and fix important bugs to
+follow the advances in the programming languages they support.
 
 +++
 ** Emacs can be built with built-in support for accessing SQLite databases.
@@ -129,7 +135,7 @@ use this configuration only if you are running a window system other
 than X that's supported by GDK.  Running this configuration on X is
 known to have problems, such as undesirable frame positioning and
 various issues with keyboard input of sequences such as 'C-;' and
-'C-S-u'.
+'C-S-u'.  Running this on WSL is also known to have problems.
 
 Note that, unlike the X build of Emacs, the PGTK build cannot
 automatically switch to text-mode interface (thus emulating '-nw') if
@@ -220,7 +226,7 @@ ones for the current Emacs version).  Note that subdirectories of the
 system directory where the "*.eln" files are installed (usually, the
 last entry in 'native-comp-eln-load-path') are not deleted.
 
----
++++
 *** New function 'startup-redirect-eln-cache'.
 This function can be called in your init files to change the
 user-specific directory where Emacs stores the "*.eln" files produced
@@ -690,7 +696,9 @@ between these modes while the user is inputting a command by hitting
 'duplicate-line' duplicates the current line the specified number of times.
 'duplicate-dwim' duplicates the region if it is active.  If not, it
 works like 'duplicate-line'.  An active rectangular region is
-duplicated on its right-hand side.
+duplicated on its right-hand side.  The new user option
+'duplicate-line-final-position' specifies where to move point
+after duplicating a line.
 
 ---
 ** Files with the ".eld" extension are now visited in 'lisp-data-mode'.
@@ -1693,6 +1701,13 @@ the following to your Init file:
 This command visits the file on the current line with EWW.
 
 ---
+*** 'browse-url-of-dired-file' can now call the secondary browser.
+When invoked with a prefix arg, this will now call
+'browse-url-secondary-browser-function' instead of the default
+browser.  'browse-url-of-dired-file' is bound to 'W' by default in
+dired mode.
+
+---
 *** New user option 'dired-omit-lines'.
 This is used by 'dired-omit-mode', and now allows you to hide based on
 other things than just the file names.
@@ -1769,7 +1784,7 @@ or can take a long time to render.
 +++
 *** New command 'enriched-toggle-markup'.
 This allows you to see the markup in 'enriched-mode' buffers (e.g.,
-the "HELLO" file).
+the "HELLO" file).  Bound to 'M-o m' by default.
 
 ** Shell Script Mode
 
@@ -1879,7 +1894,9 @@ These commands can be useful if the ".elc" files are out of date
 +++
 *** New DWIM action on 'x' in "*Packages*" buffer.
 If no packages are marked, 'x' will install the package under point if
-it isn't already, and remove it if it is installed.
+it isn't already, and remove it if it is installed.  Customize the new
+option 'package-menu-use-current-if-no-marks' to the nil value to get
+back the old behavior of signaling an error in that case.
 
 +++
 *** New command 'package-vc-install'.

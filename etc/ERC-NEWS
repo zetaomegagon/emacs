@@ -1,4 +1,4 @@
-ERC NEWS                                                       -*- outline -*-
+ERC NEWS
 
 Copyright (C) 2006-2023 Free Software Foundation, Inc.
 See the end of the file for license conditions.
@@ -78,17 +78,9 @@ appearing in their saved logs.
 ** Smarter reconnect handling for users on the move.
 ERC now offers a new, experimental reconnect strategy in the function
 'erc-server-delayed-check-reconnect', which tests for underlying
-connectivity before attempting to reconnect in earnest.  See options
-'erc-server-reconnect-function' and 'erc-nickname-in-use-functions' to
-get started.
-
-** Easily constrain all ERC-related business to a dedicated frame.
-The option 'erc-reuse-frames' can now be set to 'displayed', which
-tells ERC to show new buffers in frames already occupied by buffers
-from the same connection.  This customization depends on the option
-'erc-buffer-display' (formerly 'erc-join-buffer') being set to
-'frame'.  If you find the name 'displayed' unhelpful, please suggest
-an alternative by writing to the mailing list.
+connectivity before attempting to reconnect in earnest.  See option
+'erc-server-reconnect-function' and new local module 'services-regain'
+(also experimental) to get started.
 
 ** Module 'fill' can add a bit of space between messages.
 On graphical displays, it's now possible to add some breathing room
@@ -116,13 +108,19 @@ asking users who've customized this option to switch to
 that some other solution, like automatic migration, is justified,
 please make that known on the bug list.
 
-** The 'nicknames' entry in 'erc-button-alist' is officially exceptional.
+** 'erc-button-alist' and 'erc-nick-popup-alist' have evolved slightly.
 It's no secret that the 'buttons' module treats potential nicknames
-specially.  To simplify ERC's move to next-gen "rich UI" extensions,
-this special treatment is being canonized.  From now on, all values
-other than the symbol 'erc-button-buttonize-nicks' appearing in the
-"FORM" field (third element) of this entry are considered deprecated
-and will incur a warning.
+specially.  This is perhaps most evident in its treatment of the
+'nicknames' entry in 'erc-button-alist'.  Indeed, to simplify ERC's
+move to next-gen "rich UI" extensions, this special treatment is being
+canonized.  From here on out, this entry will no longer appear in the
+option's default value but will instead be applied implicitly so long
+as the option 'erc-button-buttonize-nicks' is non-nil, which it is by
+default.  Relatedly, the option 'erc-nick-popup-alist' now favors
+functions, which ERC calls non-interactively, over arbitrary
+s-expressions, which ERC will continue to honor.  Although the default
+lineup remains functionally equivalent, its members have all been
+updated accordingly.
 
 ** Option 'erc-query-on-unjoined-chan-privmsg' restored and renamed.
 This option was accidentally removed from the default client in ERC
@@ -131,14 +129,26 @@ been restored with a slightly revised role contingent on a few
 assumptions explained in its doc string.  For clarity, it has been
 renamed 'erc-ensure-target-buffer-on-privmsg'.
 
+** Improved interplay between buffer truncation and message logging.
+While most of these improvements are subtle, some affect everyday use.
+For example, users of the 'truncate' module may notice that truncation
+now happens between messages rather than arbitrary lines.  And those
+with the default 'erc-insert-timestamp-left-and-right' for their
+'erc-insert-timestamp-function' will see date stamps reprinted after
+every "/CLEAR" but omitted from any logs.  One notable casualty of
+these changes has been the deprecation of the ancient option
+'erc-truncate-buffer-on-save'.  Users of the 'log' module can achieve
+the same effect by issuing a "/CLEAR" at the prompt.
+
 ** Miscellaneous UX changes.
 Some minor quality-of-life niceties have finally made their way to
 ERC.  For example, the function 'erc-echo-timestamp' is now
 interactive and can be invoked on any message to view its timestamp in
 the echo area.  The command 'erc-button-previous' now moves to the
-beginning instead of the end of buttons.  And the 'irccontrols' module
-now supports additional colors and special handling for "spoilers"
-(hidden text).
+beginning instead of the end of buttons.  A new command, 'erc-news',
+can now be invoked to visit this very file.  And the 'irccontrols'
+module now supports additional colors and special handling for
+"spoilers" (hidden text).
 
 ** Changes in the library API.
 
@@ -159,6 +169,26 @@ records the IRC command (or numeric) associated with a message.  Less
 impactfully, the value of the 'field' property for ERC's prompt has
 changed from 't' to the more useful 'erc-prompt', although the
 property of the same name has been retained.
+
+*** Members of insert- and send-related hooks have been reordered.
+Built-in and third-party modules rely on certain hooks for adjusting
+incoming and outgoing messages upon insertion.  And some modules only
+want to do so after others have done their damage.  Traditionally,
+this required various hacks and finagling to achieve.  And while this
+release makes an effort to load modules in a more consistent order,
+that alone isn't enough to ensure similar predictability among
+essential members of important hooks.
+
+Luckily, ERC now leverages a feature introduced in Emacs 27, "hook
+depth," to secure the positions of a few key members of
+'erc-insert-modify-hook' and 'erc-send-modify-hook'.  So far, this
+includes the functions 'erc-button-add-buttons', 'erc-fill',
+'erc-match-message', and 'erc-add-timestamp', which now appear in that
+order, when present, at depths beginning at 20 and ending below 80.
+Of most interest to module authors is the new relative positioning of
+the first two, 'erc-button-add-buttons' and 'erc-fill', which have
+been swapped with respect to their previous places in recent ERC
+versions.
 
 *** ERC now manages timestamp-related properties a bit differently.
 For starters, the 'cursor-sensor-functions' property no longer
@@ -206,7 +236,14 @@ running hooks during message insertion, and the position of its
 "insert marker" (ERC's per-buffer process mark) was inconsistent
 during these spells.  To make insertion handling more predictable in
 preparation for incorporating various protocol extensions, the prompt
-and its bounding markers have become perennial fixtures.  In rare
+and its bounding markers have become perennial fixtures.  To effect
+this change, small behavioral differences in message insertion have
+been adopted.  Crucially, 'erc-insert-marker' now has an "insertion
+type" of t, and 'erc-display-line-1' now calls 'insert' instead of
+'insert-before-prompt'.  This allows user code to leave its own
+markers via 'erc-insert-modify-hook' and 'erc-insert-post-hook'
+instead of having to resort to workarounds.  Message insertion for
+outgoing messages, in 'erc-display-msg', remains as before.  In rare
 cases, these changes may mean third-party code needs tweaking, for
 example, requiring the use of 'insert-before-markers' instead of
 'insert'.  As always, users feeling unduly inconvenienced by these
@@ -215,12 +252,12 @@ changes are encouraged to voice their concerns on the bug list.
 *** Miscellaneous changes
 Two helper macros from GNU ELPA's Compat library are now available to
 third-party modules as 'erc-compat-call' and 'erc-compat-function'.
-In the area of buttons, 'Info-goto-node' has been supplanted by plain
-old 'info' in 'erc-button-alist', and the bracketed "<URL:...>"
-pattern entry has been removed because it was more or less redundant.
-And the "TAB" key is now bound to a new command, 'erc-tab', that only
-calls 'completion-at-point' when point is in the input area and
-module-specific commands, like 'erc-button-next', otherwise.
+In 'erc-button-alist', 'Info-goto-node' has been supplanted by plain
+old 'info', and the "<URL:...>" entry has been removed because it was
+more or less redundant.  In all ERC buffers, the "<TAB>" key is now
+bound to a new command, 'erc-tab', that calls 'completion-at-point'
+inside the input area and otherwise dispatches module-specific
+commands, like 'erc-button-next'.
 
 
 * Changes in ERC 5.5
@@ -1914,5 +1951,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 Local variables:
 coding: utf-8
 mode: outline
+mode: emacs-news
 paragraph-separate: "[ 	]*$"
 end:

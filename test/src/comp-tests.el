@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
-;; Author: Andrea Corallo <akrl@sdf.org>
+;; Author: Andrea Corallo <acorallo@gnu.org>
 
 ;; This file is part of GNU Emacs.
 
@@ -305,7 +305,8 @@ Check that the resulting binaries do not differ."
               (lambda () (throw 'foo 3)))
              3))
   (should (= (catch 'foo
-               (comp-tests-throw-f 3)))))
+               (comp-tests-throw-f 3))
+             3)))
 
 (comp-deftest gc ()
   "Try to do some longer computation to let the GC kick in."

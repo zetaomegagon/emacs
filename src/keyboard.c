@@ -1436,6 +1436,7 @@ command_loop_1 (void)
       prev_buffer = current_buffer;
       prev_modiff = MODIFF;
       last_point_position = PT;
+      ptrdiff_t last_pt = PT;
 
       /* By default, we adjust point to a boundary of a region that
          has such a property that should be treated intangible
@@ -1513,6 +1514,9 @@ command_loop_1 (void)
             unbind_to (scount, Qnil);
 #endif
           }
+      /* Restore last PT position value, possibly clobbered by
+         recursive-edit invoked by the command we just executed.  */
+      last_point_position = last_pt;
       kset_last_prefix_arg (current_kboard, Vcurrent_prefix_arg);
 
       safe_run_hooks_maybe_narrowed (Qpost_command_hook,
@@ -11561,7 +11565,7 @@ quit_throw_to_read_char (bool from_signal)
   if (FRAMEP (internal_last_event_frame)
       && !EQ (internal_last_event_frame, selected_frame))
     do_switch_frame (make_lispy_switch_frame (internal_last_event_frame),
-		     0, Qnil);
+		     0, 0, Qnil);
 
   sys_longjmp (getcjmp, 1);
 }

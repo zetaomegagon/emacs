@@ -1520,7 +1520,8 @@ the actual saved text might be different from what was killed."
                        (let ((from (car cmp))
                              (to (cadr cmp)))
                          (cond
-                          ((= (length cmp) 2) ; static composition
+                          ((and (= (length cmp) 3) ; static composition
+                                (booleanp (nth 2 cmp)))
                            to)
                           ;; TO can be at POS, in which case we want
                           ;; to make sure we advance at least by 1
@@ -2225,7 +2226,10 @@ are available:
          This excludes from completion candidates those commands
          which have been marked specific to modes other than the
          current buffer's mode.  Commands that are not specific
-         to any mode are included.
+         to any mode are included.  If a command has a
+         `(declare completion...' form which specifies a predicate,
+         that predicate will be called to determine whether to
+         include the command in the completion candidates.
 
   `command-completion-using-modes-p'
          This includes in completion candidates only commands
@@ -4730,7 +4734,7 @@ impose the use of a shell (with its need to quote arguments)."
                                       (when (buffer-live-p buf)
                                         (remove-function (process-filter proc)
                                                          nonce)
-                                        (display-buffer buf))))
+                                        (display-buffer buf '(nil (allow-no-window . t))))))
                                   `((name . ,nonce)))))))
 	  ;; Otherwise, command is executed synchronously.
 	  (shell-command-on-region (point) (point) command
@@ -9151,6 +9155,7 @@ presented."
   "When nil, `auto-save-mode' will auto-save remote files.
 Any other value means that it will not."
   :group 'auto-save
+  :group 'tramp
   :type 'boolean
   :version "30.1")
 

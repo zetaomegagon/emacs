@@ -1619,21 +1619,20 @@ extra args."
 (dolist (elt '(format message format-message error))
   (put elt 'byte-compile-format-like t))
 
-(defun byte-compile--suspicious-defcustom-choice (type)
-  "Say whether defcustom TYPE looks odd."
-  ;; Check whether there's anything like (choice (const :tag "foo" ;; 'bar)).
+(defun byte-compile--defcustom-type-quoted (type)
+  "Whether defcustom TYPE contains an accidentally quoted value."
+  ;; Detect mistakes such as (const 'abc).
   ;; We don't actually follow the syntax for defcustom types, but this
   ;; should be good enough.
-  (catch 'found
-    (if (and (consp type)
-             (proper-list-p type))
-        (if (memq (car type) '(const other))
-            (when (assq 'quote type)
-              (throw 'found t))
-          (when (memq t (mapcar #'byte-compile--suspicious-defcustom-choice
-                                type))
-            (throw 'found t)))
-      nil)))
+  (and (consp type)
+       (proper-list-p type)
+       (if (memq (car type) '(const other))
+           (assq 'quote type)
+         (let ((elts (cdr type)))
+           (while (and elts (not (byte-compile--defcustom-type-quoted
+                                  (car elts))))
+             (setq elts (cdr elts)))
+           elts))))
 
 ;; Warn if a custom definition fails to specify :group, or :type.
 (defun byte-compile-nogroup-warn (form)
@@ -1647,10 +1646,10 @@ extra args."
 	    (byte-compile-warn-x (cadr name)
 	                         "defcustom for `%s' fails to specify type"
                                  (cadr name)))
-           ((byte-compile--suspicious-defcustom-choice type)
+           ((byte-compile--defcustom-type-quoted type)
 	    (byte-compile-warn-x
              (cadr name)
-	     "defcustom for `%s' has syntactically odd type `%s'"
+	     "defcustom for `%s' may have accidentally quoted value in type `%s'"
              (cadr name) type)))))
       (if (and (memq (car form) '(custom-declare-face custom-declare-variable))
 	       byte-compile-current-group)
@@ -3083,6 +3082,14 @@ If FORM is a lambda or a macro, byte-compile it as a function."
 	       (byte-compile-warn-x
                 arg "repeated variable %s in lambda-list" arg))
 	      (t
+	       (when (and lexical-binding
+	                  (cconv--not-lexical-var-p
+	                   arg byte-compile-bound-variables)
+	                  (byte-compile-warning-enabled-p 'lexical arg))
+	         (byte-compile-warn-x
+	          arg
+	          "Lexical argument shadows the dynamic variable %S"
+	          arg))
 	       (push arg vars))))
       (setq list (cdr list)))))
 
@@ -3466,8 +3473,9 @@ lambda-expression."
                              run-hook-with-args-until-failure))
           (pcase (cdr form)
             (`(',var . ,_)
-             (when (memq var byte-compile-lexical-variables)
-               (byte-compile-report-error
+             (when (and (memq var byte-compile-lexical-variables)
+                        (byte-compile-warning-enabled-p 'lexical var))
+               (byte-compile-warn
                 (format-message "%s cannot use lexical var `%s'" fn var))))))
         ;; Warn about using obsolete hooks.
         (if (memq fn '(add-hook remove-hook))
@@ -3505,6 +3513,18 @@ lambda-expression."
                                        (car form)
                                        (if (consp arg) "list" (type-of arg))
                                        idx))))))
+
+        (let ((funargs (function-get (car form) 'funarg-positions)))
+          (dolist (funarg funargs)
+            (let ((arg (if (numberp funarg)
+                           (nth funarg form)
+                         (cadr (memq funarg form)))))
+              (when (and (eq 'quote (car-safe arg))
+                         (eq 'lambda (car-safe (cadr arg))))
+                (byte-compile-warn-x
+                 arg "(lambda %s ...) quoted with %s rather than with #%s"
+                 (or (nth 1 (cadr arg)) "()")
+                 "'" "'")))))           ; avoid styled quotes
 
         (if (eq (car-safe (symbol-function (car form))) 'macro)
             (byte-compile-report-error
@@ -3545,12 +3565,6 @@ lambda-expression."
      ((and (byte-code-function-p (car form))
            (memq byte-optimize '(t lap)))
       (byte-compile-unfold-bcf form))
-     ((and (eq (car-safe (car form)) 'lambda)
-           ;; if the form comes out the same way it went in, that's
-           ;; because it was malformed, and we couldn't unfold it.
-           (not (eq form (setq form (macroexp--unfold-lambda form)))))
-      (byte-compile-form form byte-compile--for-effect)
-      (setq byte-compile--for-effect nil))
      ((byte-compile-normal-call form)))
     (if byte-compile--for-effect
         (byte-compile-discard))
@@ -3561,15 +3575,17 @@ lambda-expression."
          ;; These functions are side-effect-free except for the
          ;; behaviour of functions passed as argument.
          mapcar mapcan mapconcat
-         assoc assoc-string plist-get plist-member
+         assoc plist-get plist-member
 
          ;; It's safe to ignore the value of `sort' and `nreverse'
          ;; when used on arrays, but most calls pass lists.
          nreverse sort
 
-         ;; Adding these functions causes many warnings;
-         ;; evaluate how many of them are false first.
-         delq delete
+         match-data
+
+         ;; Warning about these functions causes some false positives that are
+         ;; laborious to eliminate; see bug#61730.
+         ;;delq delete
          ;;nconc plist-put
          )))
   (dolist (fn important-return-value-fns)
@@ -3612,6 +3628,74 @@ lambda-expression."
          )))
   (dolist (entry mutating-fns)
     (put (car entry) 'mutates-arguments (cdr entry))))
+
+;; Record which arguments expect functions, so we can warn when those
+;; are accidentally quoted with ' rather than with #'
+;; The value of the `funarg-positions' property is a list of function
+;; argument positions, starting with 1, and keywords.
+(dolist (f '( funcall apply mapcar mapatoms mapconcat mapc maphash
+              mapcan map-char-table map-keymap map-keymap-internal
+              functionp
+              seq-do seq-do-indexed seq-sort seq-sort-by seq-group-by
+              seq-find seq-count
+              seq-filter seq-reduce seq-remove seq-keep
+              seq-map seq-map-indexed seq-mapn seq-mapcat
+              seq-drop-while seq-take-while
+              seq-some seq-every-p
+              cl-every cl-some
+              cl-mapcar cl-mapcan cl-mapcon cl-mapc cl-mapl cl-maplist
+              ))
+  (put f 'funarg-positions '(1)))
+(dolist (f '( defalias fset sort
+              replace-regexp-in-string
+              add-hook remove-hook advice-remove advice--remove-function
+              global-set-key local-set-key keymap-global-set keymap-local-set
+              set-process-filter set-process-sentinel
+              ))
+  (put f 'funarg-positions '(2)))
+(dolist (f '( assoc assoc-default assoc-delete-all
+              plist-get plist-member
+              advice-add define-key keymap-set
+              run-at-time run-with-idle-timer run-with-timer
+              seq-contains seq-contains-p seq-set-equal-p
+              seq-position seq-positions seq-uniq
+              seq-union seq-intersection seq-difference))
+  (put f 'funarg-positions '(3)))
+(dolist (f '( cl-find cl-member cl-assoc cl-rassoc cl-position cl-count
+              cl-remove cl-delete
+              cl-subst cl-nsubst
+              cl-substitute cl-nsubstitute
+              cl-remove-duplicates cl-delete-duplicates
+              cl-union cl-nunion cl-intersection cl-nintersection
+              cl-set-difference cl-nset-difference
+              cl-set-exclusive-or cl-nset-exclusive-or
+              cl-nsublis
+              cl-search
+              ))
+  (put f 'funarg-positions '(:test :test-not :key)))
+(dolist (f '( cl-find-if cl-find-if-not cl-member-if cl-member-if-not
+              cl-assoc-if cl-assoc-if-not cl-rassoc-if cl-rassoc-if-not
+              cl-position-if cl-position-if-not cl-count-if cl-count-if-not
+              cl-remove-if cl-remove-if-not cl-delete-if cl-delete-if-not
+              cl-reduce cl-adjoin
+              cl-subsetp
+              ))
+  (put f 'funarg-positions '(1 :key)))
+(dolist (f '( cl-subst-if cl-subst-if-not cl-nsubst-if cl-nsubst-if-not
+              cl-substitute-if cl-substitute-if-not
+              cl-nsubstitute-if cl-nsubstitute-if-not
+              cl-sort cl-stable-sort
+              ))
+  (put f 'funarg-positions '(2 :key)))
+(dolist (fa '((plist-put 4) (alist-get 5) (add-to-list 5)
+              (cl-merge 4 :key)
+              (custom-declare-variable :set :get :initialize :safe)
+              (make-process :filter :sentinel)
+              (make-network-process :filter :sentinel)
+              (all-completions 2 3) (try-completion 2 3) (test-completion 2 3)
+              (completing-read 2 3)
+              ))
+  (put (car fa) 'funarg-positions (cdr fa)))
 
 
 (defun byte-compile-normal-call (form)
@@ -3961,6 +4045,7 @@ If it is nil, then the handler is \"byte-compile-SYMBOL.\""
 (byte-defop-compiler cons		2)
 (byte-defop-compiler aref		2)
 (byte-defop-compiler set		2)
+(byte-defop-compiler fset		2)
 (byte-defop-compiler (= byte-eqlsign)	2-cmp)
 (byte-defop-compiler (< byte-lss)	2-cmp)
 (byte-defop-compiler (> byte-gtr)	2-cmp)
@@ -4225,7 +4310,6 @@ This function is never called when `lexical-binding' is nil."
 (byte-defop-compiler backward-word)
 (byte-defop-compiler list)
 (byte-defop-compiler concat)
-(byte-defop-compiler fset)
 (byte-defop-compiler (indent-to-column byte-indent-to) byte-compile-indent-to)
 (byte-defop-compiler indent-to)
 (byte-defop-compiler insert)
@@ -4321,26 +4405,6 @@ This function is never called when `lexical-binding' is nil."
 	   (while (setq form (cdr form))
 	     (byte-compile-form (car form))
 	     (byte-compile-out 'byte-nconc 0))))))
-
-(defun byte-compile-fset (form)
-  ;; warn about forms like (fset 'foo '(lambda () ...))
-  ;; (where the lambda expression is non-trivial...)
-  (let ((fn (nth 2 form))
-	body)
-    (if (and (eq (car-safe fn) 'quote)
-	     (eq (car-safe (setq fn (nth 1 fn))) 'lambda))
-	(progn
-	  (setq body (cdr (cdr fn)))
-	  (if (stringp (car body)) (setq body (cdr body)))
-	  (if (eq 'interactive (car-safe (car body))) (setq body (cdr body)))
-	  (if (and (consp (car body))
-		   (not (eq 'byte-code (car (car body)))))
-	      (byte-compile-warn-x
-               (nth 2 form)
-      "A quoted lambda form is the second argument of `fset'.  This is probably
-     not what you want, as that lambda cannot be compiled.  Consider using
-     the syntax #'(lambda (...) ...) instead.")))))
-  (byte-compile-two-args form))
 
 ;; (function foo) must compile like 'foo, not like (symbol-function 'foo).
 ;; Otherwise it will be incompatible with the interpreter,
@@ -4996,6 +5060,10 @@ binding slots have been popped."
           (byte-compile-warn-x
            condition "`condition-case' condition should not be quoted: %S"
            condition))
+        (when (and (consp condition) (memq :success condition))
+          (byte-compile-warn-x
+           condition
+           "`:success' must be the first element of a `condition-case' handler"))
         (unless (consp condition) (setq condition (list condition)))
         (dolist (c condition)
           (unless (and c (symbolp c))

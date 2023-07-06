@@ -167,8 +167,8 @@ Earlier variables shadow later ones with the same name.")
       ((or `(lambda . ,_) `(closure . ,_))
        ;; While byte-compile-unfold-bcf can inline dynbind byte-code into
        ;; letbind byte-code (or any other combination for that matter), we
-       ;; can only inline dynbind source into dynbind source or letbind
-       ;; source into letbind source.
+       ;; can only inline dynbind source into dynbind source or lexbind
+       ;; source into lexbind source.
        ;; When the function comes from another file, we byte-compile
        ;; the inlined function first, and then inline its byte-code.
        ;; This also has the advantage that the final code does not
@@ -176,7 +176,10 @@ Earlier variables shadow later ones with the same name.")
        ;; the build more reproducible.
        (if (eq fn localfn)
            ;; From the same file => same mode.
-           (macroexp--unfold-lambda `(,fn ,@(cdr form)))
+           (let* ((newform `(,fn ,@(cdr form)))
+                  (unfolded (macroexp--unfold-lambda newform)))
+             ;; Use the newform only if it could be optimized.
+             (if (eq unfolded newform) form unfolded))
          ;; Since we are called from inside the optimizer, we need to make
          ;; sure not to propagate lexvar values.
          (let ((byte-optimize--lexvars nil)
@@ -447,23 +450,10 @@ for speeding up processing.")
           . ,(byte-optimize-body exps for-effect)))
 
       ;; Needed as long as we run byte-optimize-form after cconv.
-      (`(internal-make-closure . ,_)
-       (and (not for-effect)
-            (progn
-       ;; Look up free vars and mark them to be kept, so that they
-       ;; won't be optimized away.
-       (dolist (var (caddr form))
-         (let ((lexvar (assq var byte-optimize--lexvars)))
-           (when lexvar
-             (setcar (cdr lexvar) t))))
-              form)))
-
-      (`((lambda . ,_) . ,_)
-       (let ((newform (macroexp--unfold-lambda form)))
-	 (if (eq newform form)
-	     ;; Some error occurred, avoid infinite recursion.
-	     form
-	   (byte-optimize-form newform for-effect))))
+      (`(internal-make-closure ,vars ,env . ,rest)
+       (if for-effect
+           `(progn ,@(byte-optimize-body env t))
+         `(,fn ,vars ,(mapcar #'byte-optimize-form env) . ,rest)))
 
       (`(setq ,var ,expr)
        (let ((lexvar (assq var byte-optimize--lexvars))
@@ -879,7 +869,13 @@ for speeding up processing.")
   (cons accum args))
 
 (defun byte-optimize-plus (form)
-  (let ((args (remq 0 (byte-opt--arith-reduce #'+ 0 (cdr form)))))
+  (let* ((not-0 (remq 0 (byte-opt--arith-reduce #'+ 0 (cdr form))))
+         (args (if (and (= (length not-0) 1)
+                        (> (length form) 2))
+                   ;; We removed numbers and only one arg remains: add a 0
+                   ;; so that it isn't turned into (* X 1) later on.
+                   (append not-0 '(0))
+                 not-0)))
     (cond
      ;; (+) -> 0
      ((null args) 0)
@@ -1412,15 +1408,15 @@ See Info node `(elisp) Integer Basics'."
 
 
 (defun byte-optimize-funcall (form)
-  ;; (funcall #'(lambda ...) ...) -> ((lambda ...) ...)
+  ;; (funcall #'(lambda ...) ...) -> (let ...)
   ;; (funcall #'SYM ...) -> (SYM ...)
   ;; (funcall 'SYM ...)  -> (SYM ...)
-  (let* ((fn (nth 1 form))
-         (head (car-safe fn)))
-    (if (or (eq head 'function)
-            (and (eq head 'quote) (symbolp (nth 1 fn))))
-	(cons (nth 1 fn) (cdr (cdr form)))
-      form)))
+  (pcase form
+    (`(,_ #'(lambda . ,_) . ,_)
+     (macroexp--unfold-lambda form))
+    (`(,_ ,(or `#',f `',(and f (pred symbolp))) . ,actuals)
+     `(,f ,@actuals))
+    (_ form)))
 
 (defun byte-optimize-apply (form)
   (let ((len (length form)))
@@ -1685,7 +1681,8 @@ See Info node `(elisp) Integer Basics'."
          category-docstring category-set-mnemonics char-category-set
          copy-category-table get-unused-category make-category-set
          ;; character.c
-         char-width multibyte-char-to-unibyte string unibyte-char-to-multibyte
+         char-width get-byte multibyte-char-to-unibyte string string-width
+         unibyte-char-to-multibyte unibyte-string
          ;; charset.c
          decode-char encode-char
          ;; chartab.c
@@ -1715,6 +1712,8 @@ See Info node `(elisp) Integer Basics'."
          line-beginning-position line-end-position ngettext pos-bol pos-eol
          propertize region-beginning region-end string-to-char
          user-full-name user-login-name
+         ;; eval.c
+         special-variable-p
          ;; fileio.c
          car-less-than-car directory-name-p file-directory-p file-exists-p
          file-name-absolute-p file-name-concat file-newer-than-file-p
@@ -1723,23 +1722,28 @@ See Info node `(elisp) Integer Basics'."
          file-locked-p
          ;; floatfns.c
          abs acos asin atan ceiling copysign cos exp expt fceiling ffloor
-         float floor fround ftruncate isnan ldexp log logb round sin sqrt tan
+         float floor frexp fround ftruncate isnan ldexp log logb round
+         sin sqrt tan
          truncate
          ;; fns.c
          append assq
          base64-decode-string base64-encode-string base64url-encode-string
+         buffer-hash buffer-line-statistics
          compare-strings concat copy-alist copy-hash-table copy-sequence elt
          featurep get
          gethash hash-table-count hash-table-rehash-size
          hash-table-rehash-threshold hash-table-size hash-table-test
          hash-table-weakness
          length length< length= length>
-         line-number-at-pos locale-info make-hash-table
+         line-number-at-pos load-average locale-info make-hash-table md5
          member memq memql nth nthcdr
-         object-intervals rassoc rassq reverse
-         string-as-multibyte string-as-unibyte string-bytes string-distance
+         object-intervals rassoc rassq reverse secure-hash
+         string-as-multibyte string-as-unibyte string-bytes
+         string-collate-equalp string-collate-lessp string-distance
          string-equal string-lessp string-make-multibyte string-make-unibyte
-         string-search string-to-multibyte substring substring-no-properties
+         string-search string-to-multibyte string-to-unibyte
+         string-version-lessp
+         substring substring-no-properties
          sxhash-eq sxhash-eql sxhash-equal sxhash-equal-including-properties
          take vconcat
          ;; frame.c
@@ -1799,6 +1803,7 @@ See Info node `(elisp) Integer Basics'."
          all-threads condition-mutex condition-name mutex-name thread-live-p
          thread-name
          ;; timefns.c
+         current-cpu-time
          current-time-string current-time-zone decode-time encode-time
          float-time format-time-string time-add time-convert time-equal-p
          time-less-p time-subtract
@@ -1858,7 +1863,8 @@ See Info node `(elisp) Integer Basics'."
          ;; fileio.c
          default-file-modes
          ;; fns.c
-         eql equal hash-table-p identity proper-list-p safe-length
+         eql equal equal-including-properties
+         hash-table-p identity proper-list-p safe-length
          secure-hash-algorithms
          ;; frame.c
          frame-list frame-live-p framep last-nonminibuffer-frame
@@ -1936,10 +1942,11 @@ See Info node `(elisp) Integer Basics'."
          isnan ldexp logb round sqrt truncate
          ;; fns.c
          assq base64-decode-string base64-encode-string base64url-encode-string
-         concat elt eql equal hash-table-p identity length length< length=
+         concat elt eql equal equal-including-properties
+         hash-table-p identity length length< length=
          length> member memq memql nth nthcdr proper-list-p rassoc rassq
          safe-length string-bytes string-distance string-equal string-lessp
-         string-search take
+         string-search string-version-lessp take
          ;; search.c
          regexp-quote
          ;; syntax.c
