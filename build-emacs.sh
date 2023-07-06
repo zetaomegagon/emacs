@@ -205,7 +205,11 @@ case "$input" in
 	make -j $(( $(nproc) / 2 ))
 
 	# disable and stop emacs daemon
-	[[ ! -f $HOME/.bin/emacs ]] && systemctl --user disable --now emacs.service
+	if [[ ! -f $HOME/.bin/emacs ]]; then
+	    systemctl --user disable --now emacs.service
+	else
+	    systemctl --user stop emacs.service
+	fi
 
 	# uninstall old emacs; install new emacs
 	sudo bash -c 'make uninstall && make install'
