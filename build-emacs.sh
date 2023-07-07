@@ -137,13 +137,14 @@ case "$input" in
 
 	# remove old native compiled files
 	version="$(command grep 'PACKAGE_VERSION=' ./configure | cut -d'=' -f2 | tr -d \')"
-
-	for path in
+	paths=(
 	    "./native-lisp"
 	    "/usr/local/lib/emacs/${version}/native-lisp"
 	    "$HOME/.emacs.d/eln-cache"
 	    "$HOME/.emacs.d/straight"
-	do
+	)
+
+	for path in "${paths[@]}"; do
 	    { sudo rm -rf ${path}/{,.}* || : ; } &
 	done
 
