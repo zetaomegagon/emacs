@@ -135,17 +135,17 @@ case "$input" in
 	# generate configure script
 	./autogen.sh
 
-	# remove old native compiled files in
-	# - ./native-lisp/...
-	# - /usr/local/lib/...
-	# - ~/.emacs.d/eln-cache/...
-	# - ~/.emacs.d/straight/...
+	# remove old native compiled files
 	version="$(command grep 'PACKAGE_VERSION=' ./configure | cut -d'=' -f2 | tr -d \')"
 
-	rm -rf ./native-lisp/{,.}* || :
-	sudo rm -rf /usr/local/lib/emacs/${version}/native-lisp/{,.}* || :
-	rm -rf $HOME/.emacs.d/eln-cache/{,.}* || :
-	rm -rf $HOME/.emacs.d/straight/{,.}* || :
+	for path in
+	    "./native-lisp"
+	    "/usr/local/lib/emacs/${version}/native-lisp"
+	    "$HOME/.emacs.d/eln-cache"
+	    "$HOME/.emacs.d/straight"
+	do
+	    { sudo rm -rf ${path}/{,.}* || : ; } &
+	done
 
 	# configure the build
 	case "$input" in
@@ -205,22 +205,27 @@ case "$input" in
 	make -j $(( $(nproc) / 2 ))
 
 	# disable and stop emacs daemon
-	if [[ ! -f $HOME/.bin/emacs ]]; then
+	if [[ -f $HOME/.bin/emacs ]]; then
 	    systemctl --user disable --now emacs.service
 	else
 	    systemctl --user stop emacs.service
 	fi
 
 	# uninstall old emacs; install new emacs
-	sudo bash -c 'make uninstall && make install'
+	if [[ -e /usr/local/bin/emacs ]]; then
+	    sudo bash -c 'make uninstall && make install'
+	else
+	    sudo make install
+	fi
 
 	# pull and build straight packages
-	/usr/local/bin/emacs -Q --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
-
-	# native compile straight packages
-	echo "Native compiling Straight packages"
-	/usr/local/bin/emacs -Q --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
-	echo "Finished native compilation"
+	if [[ -d $HOME/.emacs.d/straight ]]; then
+	    # iteration 0 to pull packages and build them
+	    # iteration 1 to native compile them
+	    for i in 0 1; do
+		/usr/local/bin/emacs -Q --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
+	    done
+	fi
 
 	# reload changed unit files and start daemon
 	if [[ ! -f $HOME/.bin/emacs ]]; then
