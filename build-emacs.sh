@@ -11,8 +11,26 @@ case "$input" in
 	while pgrep bash | grep -q "$script_pid" ; do sudo -v; sleep 60; done &
 
 	# update the system and install dependancies
+	packages=(
+	    libtool
+	    libwebp
+	    libwebp-devel
+	    lcms2-devel
+	    gcc
+	    musl-gcc
+	    gcc-c++
+	    cmake
+	    automake
+	    libpng-devel
+	    make
+	    poppler-devel
+	    poppler-glib-devel
+	    zlib-devel pkgconf
+	    texinfo-tex
+	)
+
 	sudo dnf upgrade -y
-	sudo dnf install -y libtool libwebp{,-devel} lcms2-devel gcc-c++
+	sudo dnf install -y "${pakages[@]}"
 	sudo dnf builddep -y emacs
 
 	# build and install latest sbcl
@@ -31,7 +49,6 @@ case "$input" in
 
 	    (
 		cd ./doc/manual/
-		sudo dnf install texinfo-tex -y
 		make clean && make
 		sudo dnf remove texinfo-tex -y
 	    )
@@ -63,7 +80,8 @@ case "$input" in
 	    cd "$dir"
 
 	    ./configure
-	    make -j "$(nproc)"
+	    CC=musl-gcc make -j "$(nproc)"
+	    sudo make uninstall
 	    sudo make install
 	    rm ../"$xz"
 
@@ -85,7 +103,8 @@ case "$input" in
 		git pull --quiet
 	    fi
 
-	    make -j "$(nproc)"
+	    CC=musl-gcc make -j "$(nproc)"
+	    sudo make uninstall
 	    sudo make install
 
 	) >/dev/null 2>&1 &
@@ -109,12 +128,13 @@ case "$input" in
 		git stash drop
 	    fi
 
-	    ./batch.sh
+	    CC=musl-gcc ./batch.sh
 	    sudo chown -R root:root dist/
 	    sudo cp ./dist/* /usr/local/lib/
 
 	    # link tree-sitter libs
 	    sudo ldconfig /usr/local/lib
+	    sudo prinf "%s" "/usr/local/lib" > /etc/ld.so.conf.d/tree-sitter.conf
 
 	) >/dev/null 2>&1 &
 
@@ -151,7 +171,8 @@ case "$input" in
 	# configure the build
 	case "$input" in
 	    --nox)
-		./configure \
+		CC=musl-gcc \
+		    ./configure \
 		    --without-all \
 		    --without-x \
 		    --enable-acl \
@@ -174,7 +195,8 @@ case "$input" in
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --x11)
-		./configure \
+		CC=musl-gcc \
+		    ./configure \
 		    --with-x-toolkit=no \
 		    --with-mailutils \
 		    --with-wide-int \
@@ -188,7 +210,8 @@ case "$input" in
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --pgtk)
-		./configure \
+		CC=musl-gcc \
+		    ./configure \
 		    --with-pgtk \
 		    --with-mailutils \
 		    --with-wide-int \
@@ -205,12 +228,14 @@ case "$input" in
 	# make the build
 	make -j $(( $(nproc) / 2 ))
 
+	# source some helper functions
+	source $HOME/.bashrc.d/12-emacs.rc
+
+	# if emacs is running gracefully shut it down
+	emacs-running-p && emacsclient -e "(save-buffers-kill-emacs)"
+
 	# disable and stop emacs daemon
-	if [[ -f $HOME/.bin/emacs ]]; then
-	    systemctl --user disable --now emacs.service
-	else
-	    systemctl --user stop emacs.service
-	fi
+	emacsctl disable
 
 	# uninstall old emacs; install new emacs
 	if [[ -e /usr/local/bin/emacs ]]; then
@@ -224,15 +249,17 @@ case "$input" in
 	    # iteration 0 to pull packages and build them
 	    # iteration 1 to native compile them
 	    for i in 0 1; do
-		/usr/local/bin/emacs -Q --batch --load=$HOME/.emacs.d/early-init.el --load=$HOME/.emacs.d/init.el
+		/usr/local/bin/emacs \
+		    --quick \
+		    --batch \
+		    --load=$HOME/.emacs.d/early-init.el \
+		    --load=$HOME/.emacs.d/init.el
 	    done
 	fi
 
 	# reload changed unit files and start daemon
-	if [[ ! -f $HOME/.bin/emacs ]]; then
-	    systemctl --user daemon-reload
-	    systemctl --user enable --now  emacs.service
-	fi
+	emacsctl daemon-reload
+	emacsctl enable
 	;;
     *)
 	_usage
