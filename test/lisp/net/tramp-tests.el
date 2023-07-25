@@ -6073,7 +6073,9 @@ INPUT, if non-nil, is a string sent to the process."
 	;; Unset the variable.
 	(let ((tramp-remote-process-environment
 	       (cons (concat envvar "=foo") tramp-remote-process-environment)))
-	  ;; Set the initial value, we want to unset below.
+	  ;; Refill the cache; we don't want to run into timeouts.
+	  (file-truename default-directory)
+	  ;; Check the initial value, we want to unset below.
 	  (should
 	   (string-match-p
 	    "foo"
@@ -8007,7 +8009,22 @@ process sentinels.  They shall not disturb each other."
 	(mapconcat #'shell-quote-argument load-path " -L ")
 	(shell-quote-argument code)))))))
 
-(ert-deftest tramp-test49-unload ()
+(ert-deftest tramp-test49-without-remote-files ()
+  "Check that Tramp can be suppressed."
+  (skip-unless (tramp--test-enabled))
+
+  (should (file-remote-p ert-remote-temporary-file-directory))
+  (should-not
+   (without-remote-files (file-remote-p ert-remote-temporary-file-directory)))
+  (should (file-remote-p ert-remote-temporary-file-directory))
+
+  (inhibit-remote-files)
+  (should-not (file-remote-p ert-remote-temporary-file-directory))
+  (tramp-register-file-name-handlers)
+  (setq tramp-mode t)
+  (should (file-remote-p ert-remote-temporary-file-directory)))
+
+(ert-deftest tramp-test50-unload ()
   "Check that Tramp and its subpackages unload completely.
 Since it unloads Tramp, it shall be the last test to run."
   :tags '(:expensive-test)

@@ -463,7 +463,7 @@ This can be useful when using docker to run a language server.")
 (eval-and-compile
   (defvar eglot--lsp-interface-alist
     `(
-      (CodeAction (:title) (:kind :diagnostics :edit :command :isPreferred))
+      (CodeAction (:title) (:kind :diagnostics :edit :command :isPreferred :data))
       (ConfigurationItem () (:scopeUri :section))
       (Command ((:title . string) (:command . string)) (:arguments))
       (CompletionItem (:label)
@@ -739,9 +739,12 @@ ACTION is an LSP object of either `CodeAction' or `Command' type."
    (server action) "Default implementation."
    (eglot--dcase action
      (((Command)) (eglot--request server :workspace/executeCommand action))
-     (((CodeAction) edit command)
-      (when edit (eglot--apply-workspace-edit edit))
-      (when command (eglot--request server :workspace/executeCommand command))))))
+     (((CodeAction) edit command data)
+      (if (and (null edit) (null command) data
+               (eglot--server-capable :codeActionProvider :resolveProvider))
+          (eglot-execute server (eglot--request server :codeAction/resolve action))
+        (when edit (eglot--apply-workspace-edit edit))
+        (when command (eglot--request server :workspace/executeCommand command)))))))
 
 (cl-defgeneric eglot-initialization-options (server)
   "JSON object to send under `initializationOptions'."
@@ -825,6 +828,8 @@ ACTION is an LSP object of either `CodeAction' or `Command' type."
              :documentHighlight  `(:dynamicRegistration :json-false)
              :codeAction         (list
                                   :dynamicRegistration :json-false
+                                  :resolveSupport `(:properties ["edit" "command"])
+                                  :dataSupport t
                                   :codeActionLiteralSupport
                                   '(:codeActionKind
                                     (:valueSet
@@ -2442,16 +2447,16 @@ buffer."
 
 (defun eglot--post-self-insert-hook ()
   "Set `eglot--last-inserted-char', maybe call on-type-formatting."
-  (setq eglot--last-inserted-char last-input-event)
+  (setq eglot--last-inserted-char last-command-event)
   (let ((ot-provider (eglot--server-capable :documentOnTypeFormattingProvider)))
     (when (and ot-provider
                (ignore-errors ; github#906, some LS's send empty strings
-                 (or (eq last-input-event
+                 (or (eq eglot--last-inserted-char
                          (seq-first (plist-get ot-provider :firstTriggerCharacter)))
-                     (cl-find last-input-event
+                     (cl-find eglot--last-inserted-char
                               (plist-get ot-provider :moreTriggerCharacter)
                               :key #'seq-first))))
-      (eglot-format (point) nil last-input-event))))
+      (eglot-format (point) nil eglot--last-inserted-char))))
 
 (defvar eglot--workspace-symbols-cache (make-hash-table :test #'equal)
   "Cache of `workspace/Symbol' results  used by `xref-find-definitions'.")
@@ -2968,7 +2973,9 @@ for which LSP on-type-formatting should be requested."
                       :insertSpaces (if indent-tabs-mode :json-false t)
                       :insertFinalNewline (if require-final-newline t :json-false)
                       :trimFinalNewlines (if delete-trailing-lines t :json-false))
-       args)))))
+       args))
+     nil
+     on-type-format)))
 
 (defvar eglot-cache-session-completions t
   "If non-nil Eglot caches data during completion sessions.")
@@ -3197,11 +3204,25 @@ for which LSP on-type-formatting should be requested."
       sig
     (with-temp-buffer
       (insert siglabel)
-      ;; Ad-hoc attempt to parse label as <name>(<params>)
       ;; Add documentation, indented so we can distinguish multiple signatures
       (when-let (doc (and (not briefp) sigdoc (eglot--format-markup sigdoc)))
         (goto-char (point-max))
         (insert "\n" (replace-regexp-in-string "^" "  " doc)))
+      ;; Try to highlight function name only
+      (let (first-parlabel)
+        (cond ((and (cl-plusp (length parameters))
+                    (vectorp (setq first-parlabel
+                                   (plist-get (aref parameters 0) :label))))
+               (save-excursion
+                (goto-char (elt first-parlabel 0))
+                (skip-syntax-backward "^w")
+                (add-face-text-property (point-min) (point)
+                                        'font-lock-function-name-face)))
+              ((save-excursion
+                 (goto-char (point-min))
+                 (looking-at "\\([^(]*\\)([^)]*)"))
+               (add-face-text-property (match-beginning 1) (match-end 1)
+                                       'font-lock-function-name-face))))
       ;; Now to the parameters
       (cl-loop
        with active-param = (or sig-active activeParameter)
@@ -3210,13 +3231,8 @@ for which LSP on-type-formatting should be requested."
                       ((:label parlabel))
                       ((:documentation pardoc)))
            parameter
-         (when (zerop i)
-           (goto-char (elt parlabel 0))
-           (skip-syntax-backward "^w")
-           (add-face-text-property (point-min) (point)
-                                   'font-lock-function-name-face))
          ;; ...perhaps highlight it in the formals list
-         (when (= i active-param)
+         (when (eq i active-param)
            (save-excursion
              (goto-char (point-min))
              (pcase-let
@@ -3353,7 +3369,7 @@ for which LSP on-type-formatting should be requested."
 (cl-defun eglot-imenu ()
   "Eglot's `imenu-create-index-function'.
 Returns a list as described in docstring of `imenu--index-alist'."
-  (unless (eglot--server-capable :textDocument/documentSymbol)
+  (unless (eglot--server-capable :documentSymbolProvider)
     (cl-return-from eglot-imenu))
   (let* ((res (eglot--request (eglot--current-server-or-lose)
                               :textDocument/documentSymbol
@@ -3366,8 +3382,9 @@ Returns a list as described in docstring of `imenu--index-alist'."
         (((SymbolInformation)) (eglot--imenu-SymbolInformation res))
         (((DocumentSymbol)) (eglot--imenu-DocumentSymbol res))))))
 
-(cl-defun eglot--apply-text-edits (edits &optional version)
-  "Apply EDITS for current buffer if at VERSION, or if it's nil."
+(cl-defun eglot--apply-text-edits (edits &optional version silent)
+  "Apply EDITS for current buffer if at VERSION, or if it's nil.
+If SILENT, don't echo progress in mode-line."
   (unless edits (cl-return-from eglot--apply-text-edits))
   (unless (or (not version) (equal version eglot--versioned-identifier))
     (jsonrpc-error "Edits on `%s' require version %d, you have %d"
@@ -3375,10 +3392,11 @@ Returns a list as described in docstring of `imenu--index-alist'."
   (atomic-change-group
     (let* ((change-group (prepare-change-group))
            (howmany (length edits))
-           (reporter (make-progress-reporter
-                      (format "[eglot] applying %s edits to `%s'..."
-                              howmany (current-buffer))
-                      0 howmany))
+           (reporter (unless silent
+                       (make-progress-reporter
+                        (format "[eglot] applying %s edits to `%s'..."
+                                howmany (current-buffer))
+                        0 howmany)))
            (done 0))
       (mapc (pcase-lambda (`(,newText ,beg . ,end))
               (let ((source (current-buffer)))
@@ -3390,12 +3408,14 @@ Returns a list as described in docstring of `imenu--index-alist'."
                         (save-restriction
                           (narrow-to-region beg end)
                           (replace-buffer-contents temp)))
-                      (eglot--reporter-update reporter (cl-incf done)))))))
+                      (when reporter
+                        (eglot--reporter-update reporter (cl-incf done))))))))
             (mapcar (eglot--lambda ((TextEdit) range newText)
                       (cons newText (eglot--range-region range 'markers)))
                     (reverse edits)))
       (undo-amalgamate-change-group change-group)
-      (progress-reporter-done reporter))))
+      (when reporter
+        (progress-reporter-done reporter)))))
 
 (defun eglot--apply-workspace-edit (wedit &optional confirm)
   "Apply the workspace edit WEDIT.  If CONFIRM, ask user first."
