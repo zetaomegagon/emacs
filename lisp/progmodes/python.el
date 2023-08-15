@@ -5214,11 +5214,13 @@ def __FFAP_get_module_path(objstr):
 
 (defcustom python-check-command
   (cond ((executable-find "pyflakes") "pyflakes")
+        ((executable-find "ruff") "ruff")
+        ((executable-find "flake8") "flake8")
         ((executable-find "epylint") "epylint")
         (t "pyflakes"))
   "Command used to check a Python file."
   :type 'string
-  :version "29.1")
+  :version "30.1")
 
 (defcustom python-check-buffer-name
   "*Python check: %s*"
@@ -6908,6 +6910,10 @@ implementations: `python-mode' and `python-ts-mode'."
                python-shell-package-enable
                python-shell-completion-complete-or-indent))
   (function-put sym 'command-modes '(python-base-mode inferior-python-mode)))
+
+;;;###autoload
+(add-to-list 'auto-mode-alist
+             '("/\\(?:Pipfile\\|\\.?flake8\\)\\'" . conf-mode))
 
 (provide 'python)
 

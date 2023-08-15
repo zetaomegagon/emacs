@@ -1176,7 +1176,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
     (unless (tramp-smb-get-cifs-capabilities v)
       (tramp-error v 'file-error "make-symbolic-link not supported")))
 
-  (tramp-skeleton-handle-make-symbolic-link target linkname ok-if-already-exists
+  (tramp-skeleton-make-symbolic-link target linkname ok-if-already-exists
     (unless (tramp-smb-send-command
 	     v (format "symlink %s %s"
 		       (tramp-smb-shell-quote-argument target)
@@ -1537,6 +1537,8 @@ VEC or USER, or if there is no home directory, return nil."
       ;; `set-visited-file-modtime' ourselves later on.
       (let (create-lockfiles)
         (write-region start end tmpfile append 'no-message))
+      ;; Now, `last-coding-system-used' has the right value.  Remember it.
+      (setq coding-system-used last-coding-system-used)
 
       (with-tramp-progress-reporter
 	  v 3 (format "Moving tmp file %s to %s" tmpfile filename)

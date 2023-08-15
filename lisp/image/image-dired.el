@@ -174,8 +174,8 @@ computing the SHA-1 of first 4KiB of the image contents (See
 In both case, a \"jpg\" extension is appended to save as JPEG.
 
 The value of this option is ignored if Image-Dired is customized
-to use the Thumbnail Managing Standard.  See
-`image-dired-thumbnail-storage'."
+to use the Thumbnail Managing Standard or the per-directory
+thumbnails setting.  See `image-dired-thumbnail-storage'."
   :type '(choice :tag "How to name thumbnail files"
                  (const :tag "SHA-1 of the image file name" sha1-filename)
                  (const :tag "SHA-1 of the image contents" sha1-contents))
@@ -208,8 +208,8 @@ thumbnails:
 
     Set this user option to `per-directory'.
 
-To control the naming of thumbnails for alternatives (2) and (3)
-above, customize the value of `image-dired-thumb-naming'.
+To control the naming of thumbnails for alternative (2) above,
+customize the value of `image-dired-thumb-naming'.
 
 To control the default size of thumbnails for alternatives (2)
 and (3) above, customize the value of `image-dired-thumb-size'.
@@ -590,7 +590,7 @@ used or not.  If non-nil, use `display-buffer' instead of
 `image-dired-previous-line-and-display' where we do not want the
 thumbnail buffer to be selected."
   (interactive "P" nil dired-mode)
-  (setq image-dired--generate-thumbs-start  (current-time))
+  (setq image-dired--generate-thumbs-start (current-time))
   (let ((buf (image-dired-create-thumbnail-buffer))
         files dired-buf)
     (if arg
@@ -769,6 +769,24 @@ On reaching end or beginning of buffer, stop and show a message."
   "Move to the end of current line in thumbnail buffer."
   (interactive nil image-dired-thumbnail-mode)
   (image-dired--movement-command (pos-eol) 'reverse))
+
+(defun image-dired-scroll (&optional down)
+  "Scroll in the thumbnail buffer."
+  (let ((goal-column (current-column)))
+    (if down (scroll-down) (scroll-up))
+    (move-to-column goal-column)
+    (image-dired--movement-ensure-point-pos down)
+    (when image-dired-track-movement
+      (image-dired-track-original-file))
+    (image-dired--update-header-line)))
+
+(defun image-dired-scroll-up ()
+  (interactive nil image-dired-thumbnail-mode)
+  (image-dired-scroll))
+
+(defun image-dired-scroll-down ()
+  (interactive nil image-dired-thumbnail-mode)
+  (image-dired-scroll 'down))
 
 
 ;;; Header line
@@ -980,6 +998,8 @@ You probably want to use this together with
   "<remap> <end-of-buffer>"          #'image-dired-end-of-buffer
   "<remap> <move-beginning-of-line>" #'image-dired-move-beginning-of-line
   "<remap> <move-end-of-line>"       #'image-dired-move-end-of-line
+  "<remap> <scroll-up-command>"      #'image-dired-scroll-up
+  "<remap> <scroll-down-command>"    #'image-dired-scroll-down
 
   :menu
   '("Image-Dired"
@@ -1905,8 +1925,8 @@ when using per-directory thumbnail file storage"))
     (if (file-exists-p image-dired-gallery-dir)
         (if (not (file-directory-p image-dired-gallery-dir))
             (error "Variable image-dired-gallery-dir is not a directory"))
-      ;; FIXME: Should we set umask to 077 here, as we do for thumbnails?
-      (make-directory image-dired-gallery-dir))
+      (with-file-modes #o700
+        (make-directory image-dired-gallery-dir)))
     ;; Open index file
     (with-temp-file index-file
       (if (file-exists-p index-file)

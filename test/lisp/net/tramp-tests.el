@@ -2711,7 +2711,20 @@ This checks also `file-name-as-directory', `file-name-directory',
              :type 'file-already-exists)
 	    (should-error
 	     (write-region "foo" nil tmp-name nil nil nil 'excl)
-	     :type 'file-already-exists))
+	     :type 'file-already-exists)
+	    (delete-file tmp-name)
+
+	    ;; Check `buffer-file-coding-system'.  Bug#65022.
+	    (with-temp-buffer
+	      (setq buffer-file-name tmp-name)
+	      (insert "foo")
+	      (set-buffer-file-coding-system 'cp1251)
+	      (let ((bfcs buffer-file-coding-system))
+		(should (buffer-modified-p))
+		(should (null (save-buffer)))
+		(should
+                 (eq (coding-system-get buffer-file-coding-system :mime-charset)
+                     (coding-system-get bfcs :mime-charset))))))
 
 	;; Cleanup.
 	(ignore-errors (delete-file tmp-name))))))
@@ -5370,7 +5383,7 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
     (let ((default-directory ert-remote-temporary-file-directory)
 	  (tmp-name (tramp--test-make-temp-name nil quoted))
 	  kill-buffer-query-functions command proc)
-      (should-not (make-process))
+      (should-not (apply #'make-process nil))   ; use `apply' to avoid warnings
 
       ;; Simple process.
       (unwind-protect
@@ -7083,6 +7096,12 @@ This does not support external Emacs calls."
   (string-equal
    "mock" (file-remote-p ert-remote-temporary-file-directory 'method)))
 
+(defun tramp--test-openbsd-p ()
+  "Check, whether the remote host runs OpenBSD."
+  ;; We must refill the cache.  `file-truename' does it.
+  (file-truename ert-remote-temporary-file-directory)
+  (ignore-errors (tramp-check-remote-uname tramp-test-vec "OpenBSD")))
+
 (defun tramp--test-out-of-band-p ()
   "Check, whether an out-of-band method is used."
   (tramp-method-out-of-band-p tramp-test-vec 1))
@@ -7392,6 +7411,7 @@ This requires restrictions of file name syntax."
   (skip-unless (not (getenv "EMACS_HYDRA_CI"))) ; SLOW ~ 245s
   (skip-unless (not (tramp--test-rsync-p)))
   (skip-unless (not (tramp--test-rclone-p)))
+  (skip-unless (not (or (eq system-type 'darwin) (tramp--test-macos-p))))
 
   ;; Newlines, slashes and backslashes in file names are not
   ;; supported.  So we don't test.  And we don't test the tab
@@ -7403,6 +7423,7 @@ This requires restrictions of file name syntax."
 	  (cond ((or (tramp--test-ange-ftp-p)
 		     (tramp--test-container-p)
 		     (tramp--test-gvfs-p)
+		     (tramp--test-openbsd-p)
 		     (tramp--test-rclone-p)
 		     (tramp--test-sudoedit-p)
 		     (tramp--test-windows-nt-or-smb-p))
@@ -7466,14 +7487,12 @@ This requires restrictions of file name syntax."
   (skip-unless (not (tramp--test-gdrive-p)))
   (skip-unless (not (tramp--test-crypt-p)))
   (skip-unless (not (tramp--test-rclone-p)))
+  (skip-unless (not (or (eq system-type 'darwin) (tramp--test-macos-p))))
 
-  (let* ((utf8 (if (and (eq system-type 'darwin)
-			(memq 'utf-8-hfs (coding-system-list)))
-		   'utf-8-hfs 'utf-8))
-	 (coding-system-for-read utf8)
-	 (coding-system-for-write utf8)
-	 (file-name-coding-system
-	  (coding-system-change-eol-conversion utf8 'unix)))
+  (let ((coding-system-for-read 'utf-8)
+	(coding-system-for-write 'utf-8)
+	(file-name-coding-system
+	 (coding-system-change-eol-conversion 'utf-8 'unix)))
     (apply
      #'tramp--test-check-files
      (append
@@ -7485,7 +7504,8 @@ This requires restrictions of file name syntax."
        "Автостопом по гала́ктике"
        ;; Use codepoints without a name.  See Bug#31272.
        ;; Works on some Android systems only.
-       (unless (tramp--test-adb-p) "bung")
+       (unless (or (tramp--test-adb-p) (tramp--test-openbsd-p))
+	 "bung")
        ;; Use codepoints from Supplementary Multilingual Plane (U+10000
        ;; to U+1FFFF).
        "🌈🍒👋")
@@ -7848,7 +7868,7 @@ process sentinels.  They shall not disturb each other."
 
 (ert-deftest tramp-test47-read-password ()
   "Check Tramp password handling."
-  :tags '(:expensive-test)
+  :tags '(:expensive-test :unstable)
   (skip-unless (tramp--test-enabled))
   (skip-unless (tramp--test-mock-p))
   ;; Not all read commands understand argument "-s" or "-p".

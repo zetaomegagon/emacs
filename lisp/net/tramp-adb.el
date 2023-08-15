@@ -511,9 +511,9 @@ Emacs dired can't find files."
   (with-parsed-tramp-file-name (expand-file-name filename) nil
     (with-tramp-file-property v localname "file-writable-p"
       (if (file-exists-p filename)
+	  ;; Examine `file-attributes' cache to see if request can be
+	  ;; satisfied without remote operation.
 	  (if (tramp-file-property-p v localname "file-attributes")
-	      ;; Examine `file-attributes' cache to see if request can
-	      ;; be satisfied without remote operation.
 	      (tramp-check-cached-permissions v ?w)
 	    (tramp-adb-send-command-and-check
 	     v (format "test -w %s" (tramp-shell-quote-argument localname))))
@@ -538,6 +538,8 @@ Emacs dired can't find files."
 	  (set-file-modes tmpfile (logior (or (file-modes tmpfile) 0) #o0600)))
 	(let (create-lockfiles)
           (write-region start end tmpfile append 'no-message))
+	;; Now, `last-coding-system-used' has the right value.  Remember it.
+	(setq coding-system-used last-coding-system-used)
 	(with-tramp-progress-reporter
 	    v 3 (format-message
 		 "Moving tmp file `%s' to `%s'" tmpfile filename)

@@ -5795,9 +5795,14 @@ Before and after saving the buffer, this function runs
 	          (run-hook-with-args-until-success 'write-file-functions)
 	          ;; If a hook returned t, file is already "written".
 	          ;; Otherwise, write it the usual way now.
-	          (let ((dir (file-name-directory
+	          (let ((file (buffer-file-name))
+                        (dir (file-name-directory
 			      (expand-file-name buffer-file-name))))
-		    (unless (file-exists-p dir)
+                    ;; Some systems have directories (like /content on
+                    ;; Android) in which files can exist without a
+                    ;; corresponding parent directory.
+		    (unless (or (file-exists-p file)
+                                (file-exists-p dir))
 		      (if (y-or-n-p
 		           (format-message
                             "Directory `%s' does not exist; create? " dir))
@@ -5866,8 +5871,10 @@ Before and after saving the buffer, this function runs
 		     buffer-file-name)))
 		  (setq tempsetmodes t)
 		(error "Attempt to save to a file that you aren't allowed to write"))))))
-    (or buffer-backed-up
-	(setq setmodes (backup-buffer)))
+    (with-demoted-errors
+        "Backing up buffer: %s"
+      (or buffer-backed-up
+	  (setq setmodes (backup-buffer))))
     (let* ((dir (file-name-directory buffer-file-name))
            (dir-writable (file-writable-p dir)))
       (if (or (and file-precious-flag dir-writable)
@@ -6352,6 +6359,27 @@ non-nil and if FN fails due to a missing file or directory."
       (apply fn args)
     (file-missing (or no-such (signal (car err) (cdr err))))))
 
+(defun delete-file (filename &optional trash)
+  "Delete file named FILENAME.  If it is a symlink, remove the symlink.
+If file has multiple names, it continues to exist with the other names.
+TRASH non-nil means to trash the file instead of deleting, provided
+`delete-by-moving-to-trash' is non-nil.
+
+When called interactively, TRASH is t if no prefix argument is given.
+With a prefix argument, TRASH is nil."
+  (interactive (list (read-file-name
+                      (if (and delete-by-moving-to-trash (null current-prefix-arg))
+                          "Move file to trash: " "Delete file: ")
+                      nil default-directory (confirm-nonexistent-file-or-buffer))
+                     (null current-prefix-arg)))
+  (if (and (file-directory-p filename) (not (file-symlink-p filename)))
+      (signal 'file-error (list "Removing old name: is a directory" filename)))
+  (let* ((filename (expand-file-name filename))
+         (handler (find-file-name-handler filename 'delete-file)))
+    (cond (handler (funcall handler 'delete-file filename trash))
+          ((and delete-by-moving-to-trash trash) (move-file-to-trash filename))
+          (t (delete-file-internal filename)))))
+
 (defun delete-directory (directory &optional recursive trash)
   "Delete the directory named DIRECTORY.  Does not follow symlinks.
 If RECURSIVE is non-nil, delete files in DIRECTORY as well, with
@@ -6734,7 +6762,10 @@ This function binds `revert-buffer-in-progress-p' non-nil while it operates.
 This function calls the function that `revert-buffer-function' specifies
 to do the work, with arguments IGNORE-AUTO and NOCONFIRM.
 The default function runs the hooks `before-revert-hook' and
-`after-revert-hook'
+`after-revert-hook'.
+Return value is whatever `revert-buffer-function' returns.  For historical
+reasons, that return value is non-nil when `revert-buffer-function'
+succeeds in its job and returns non-nil.
 
 Reverting a buffer will try to preserve markers in the buffer,
 but it cannot always preserve all of them.  For better results,
@@ -6751,17 +6782,20 @@ preserve markers and overlays, at the price of being slower."
         (revert-buffer-preserve-modes preserve-modes)
         (state (and (boundp 'read-only-mode--state)
                     (list read-only-mode--state))))
-    (funcall (or revert-buffer-function #'revert-buffer--default)
-             ignore-auto noconfirm)
-    (when state
-      (setq buffer-read-only (car state))
-      (setq-local read-only-mode--state (car state)))))
+    ;; Return whatever 'revert-buffer-function' returns.
+    (prog1 (funcall (or revert-buffer-function #'revert-buffer--default)
+                    ignore-auto noconfirm)
+      (when state
+        (setq buffer-read-only (car state))
+        (setq-local read-only-mode--state (car state))))))
 
 (defun revert-buffer--default (ignore-auto noconfirm)
   "Default function for `revert-buffer'.
 The arguments IGNORE-AUTO and NOCONFIRM are as described for `revert-buffer'.
 Runs the hooks `before-revert-hook' and `after-revert-hook' at the
 start and end.
+The function returns non-nil if it reverts the buffer; signals
+an error if the buffer is not associated with a file.
 
 Calls `revert-buffer-insert-file-contents-function' to reread the
 contents of the visited file, with two arguments: the first is the file
@@ -6869,9 +6903,9 @@ an auto-save file."
       (if revert-buffer-preserve-modes
           (let ((buffer-file-format buffer-file-format))
             (insert-file-contents file-name (not auto-save-p)
-                                  nil nil t))
+                                  nil nil 'if-regular))
         (insert-file-contents file-name (not auto-save-p)
-                              nil nil t))))))
+                              nil nil 'if-regular))))))
 
 (defvar revert-buffer-with-fine-grain-max-seconds 2.0
   "Maximum time that `revert-buffer-with-fine-grain' should use.
@@ -7715,7 +7749,6 @@ If DIR's free space cannot be obtained, this function returns nil."
       (if avail
           (funcall byte-count-to-string-function avail)))))
 
-;; The following expression replaces `dired-move-to-filename-regexp'.
 (defvar directory-listing-before-filename-regexp
   (let* ((l "\\([A-Za-z]\\|[^\0-\177]\\)")
 	 (l-or-quote "\\([A-Za-z']\\|[^\0-\177]\\)")

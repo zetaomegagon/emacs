@@ -229,7 +229,11 @@ interactive command."
                (lambda (f) (if want-command
                           (commandp f)
                         (or (fboundp f) (get f 'function-documentation))))
-               'confirm nil nil
+               ;; We used `confirm' for a while because we may want to see the
+               ;; meta-info about a function even if the function itself is not
+               ;; defined, but this use case is too marginal and rarely tested,
+               ;; not worth the trouble (bug#64902).
+               t nil nil
                (and fn (symbol-name fn)))))
     (unless (equal val "")
       (setq fn (intern val)))
@@ -711,7 +715,8 @@ the C sources, too."
           (unless (and (symbolp function)
                        (get function 'reader-construct))
             (insert high-usage "\n")
-            (when-let* ((res (comp-function-type-spec function))
+            (when-let* ((res (and (native-comp-available-p)
+                                  (comp-function-type-spec function)))
                         (type-spec (car res))
                         (kind (cdr res)))
               (insert (format
@@ -2067,11 +2072,9 @@ keymap value."
         (if (symbolp keymap)
             (error "Not a keymap variable: %S" keymap)
           (error "Not a keymap")))
-      (let ((sym nil))
-        (unless sym
-          (setq sym (cl-gentemp "KEYMAP OBJECT (no variable) "))
-          (setq used-gentemp t)
-          (set sym keymap))
+      (let ((sym (cl-gentemp "KEYMAP OBJECT (no variable) ")))
+        (setq used-gentemp t)
+        (set sym keymap)
         (setq keymap sym)))
     ;; Follow aliasing.
     (setq keymap (or (ignore-errors (indirect-variable keymap)) keymap))
