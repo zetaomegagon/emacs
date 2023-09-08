@@ -3704,6 +3704,17 @@ host name of the previous hop is reused.  Therefore, the following
 file name is equivalent to the previous example:
 @samp{@trampfn{ssh@value{postfixhop}remotehost|su,,}}.
 
+@defopt tramp-completion-multi-hop-methods
+When this list includes the last method in a multi-hop connection, the
+remote host will be queried for a list of completion candidates.  This
+can, for example, provide a list of running docker or podman
+containers on the remote host.
+
+@lisp
+(customize-set-variable 'tramp-completion-multi-hop-methods
+ `(,tramp-docker-method ,tramp-podman-method))
+@end lisp
+@end defopt
 
 @node Home directories
 @section Expanding @file{~} to home directory
@@ -6125,9 +6136,8 @@ performance of @value{tramp} actions.
 If @code{tramp-verbose} is greater than or equal to 11, @value{tramp}
 function call traces are written to the buffer @file{*trace tramp/foo*}.
 
-When @code{tramp-debug-command-messages} is non-@code{nil} and
-@code{tramp-verbose} is greater than or equal to 6, the debug buffer
-contains all messages with verbosity level 6 (sent and received
+When @code{tramp-debug-command-messages} is non-@code{nil}, the debug
+buffer contains all messages with verbosity level 6 (sent and received
 strings), and the entry and exit messages for the function
 @code{tramp-file-name-handler}.  This is intended for @value{tramp}
 maintainers, analyzing the remote commands for performance analysis.

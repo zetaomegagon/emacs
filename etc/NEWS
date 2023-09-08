@@ -24,6 +24,7 @@ applies, and please also update docstrings as needed.
 
 * Installation Changes in Emacs 30.1
 
++++
 ** Emacs has been ported to the Android operating system.
 This requires Emacs to be compiled on another computer.  The Android
 NDK, SDK, and a suitable Java compiler must also be installed.
@@ -55,7 +56,7 @@ the signature) the automatically inferred function type as well.
 ---
 ** New user option 'describe-bindings-outline-rules'.
 This user option controls outline visibility in the output buffer of
-'describe-bindings' when 'describe-bindings-outline' in non-nil.
+'describe-bindings' when 'describe-bindings-outline' is non-nil.
 
 ** X selection requests are now handled much faster and asynchronously.
 This means it should be less necessary to disable the likes of
@@ -70,9 +71,9 @@ example, as part of preview for iconified frames.
 
 ---
 ** New user option 'menu-bar-close-window'.
-When non-nil, selecting Close from the File menu or clicking Close in
-the tool bar will result in the current window being closed, if
-possible.
+When non-nil, selecting "Close" from the "File" menu or clicking
+"Close" in the tool bar will result in the current window being
+closed, if possible.
 
 +++
 ** 'write-region-inhibit-fsync' now defaults to t in interactive mode,
@@ -145,6 +146,19 @@ Anything following the symbol 'mode-line-format-right-align' in
 'mode-line-format' will be right-aligned.  Exactly where it is
 right-aligned to is controlled by the new user option
 'mode-line-right-align-edge'.
+
+** Tab Bars and Tab Lines
+
+*** New user option 'tab-bar-tab-name-format-functions'.
+It can be used to add, remove and reorder functions that change
+the appearance of every tab on the tab bar.
+
+** Miscellaneous
+
+---
+*** New face 'appt-notification' for 'appt-display-mode-line'.
+It can be used to customize the look of the appointment notification
+displayed on the mode line when 'appt-display-mode-line' is non-nil.
 
 
 * Editing Changes in Emacs 30.1
@@ -296,12 +310,28 @@ using this new option.  (Or set 'display-buffer-alist' directly.)
 ** Eshell
 
 +++
+*** New builtin Eshell command 'compile'.
+This command runs another command, sending its output to a compilation
+buffer when the command would output interactively.  This can be useful
+when defining aliases so that they produce a compilation buffer when
+appropriate, but still allow piping the output elsewhere if desired.
+For more information, see the "(eshell) Built-ins" node in the Eshell
+manual.
+
++++
 *** New splice operator for Eshell dollar expansions.
 Dollar expansions in Eshell now let you splice the elements of the
 expansion in-place using '$@expr'.  This makes it easier to fill lists
 of arguments into a command, such as when defining aliases.  For more
 information, see the "(eshell) Dollars Expansion" node in the Eshell
 manual.
+
++++
+*** You can now splice Eshell globs in-place into argument lists.
+By setting 'eshell-glob-splice-results' to a non-nil value, Eshell
+will expand glob results in-place as if you had typed each matching
+file name individually.  For more information, see the "(eshell)
+Globbing" node in the Eshell manual.
 
 +++
 *** Eshell now supports negative numbers and ranges for indices.
@@ -333,6 +363,9 @@ this to your configuration:
 
     (keymap-set eshell-mode-map "<home>" #'eshell-bol-ignoring-prompt)
 
+This also means you no longer need to adjust 'eshell-prompt-regexp'
+when customizing your Eshell prompt.
+
 ---
 *** You can now properly unload Eshell.
 Calling '(unload-feature 'eshell)' no longer signals an error, and now
@@ -348,6 +381,17 @@ to load the edited aliases.
 Running 'rgrep' in Eshell now uses the Emacs grep facility instead of
 calling external rgrep.
 
++++
+*** If a command exits abnormally, the Eshell prompt now shows its exit code.
+
+** Pcomplete
+
+---
+*** New user option 'pcomplete-remote-file-ignore'.
+When this option is non-nil, remote file names are not completed by
+Pcomplete.  Packages, like 'shell-mode', could set this in order to
+suppress remote file name completion at all.
+
 ** Shell Mode
 
 +++
@@ -355,6 +399,13 @@ calling external rgrep.
 When this user option is non-nil, 'shell-get-old-input' ('C-RET')
 includes multiple shell "\" continuation lines from command output.
 Default is nil.
+
+** Make mode
+
+*** The Makefile browser is now obsolete.
+The command 'makefile-switch-to-browser' command is now obsolete,
+together with related commands used in the "*Macros and Targets*"
+buffer.  We recommend using an alternative like 'imenu' instead.
 
 ** Prog Mode
 
@@ -416,6 +467,13 @@ This macro could wrap code which handles local files only.  Due to the
 temporary deactivation of remote files, it results in a slightly
 improved performance of file name handling in Emacs.
 
++++
+*** New user option 'tramp-completion-multi-hop-methods'.
+It contains a list of connection methods for which completion should
+be attempted at the end of a multi-hop chain.  This allows completion
+candidates to include a list of, for example, containers running on a
+remote docker host.
+
 ** EWW
 
 +++
@@ -442,6 +500,13 @@ It copies an alternate link on the page currently visited in EWW into
 the kill ring.  Alternate links are optional metadata that HTML pages
 use for linking to their alternative representations, such as
 translated versions or associated RSS feeds.
+
++++
+*** 'eww-open-in-new-buffer' supports the prefix argument.
+When invoked with the prefix argument ('C-u'),
+'eww-open-in-new-buffer' will not make the new buffer the current one.
+This is useful for continuing reading the URL in the current buffer
+when the new URL is fetched.
 
 ** go-ts-mode
 
@@ -501,9 +566,18 @@ project, that you can quickly select using 'project-switch-project'
 ('C-x p p').
 
 ---
-*** New user option 'package-vc-allow-side-effects'.
-When non-nil, package specifications with side-effects for building
-software will be used when building a package.
+*** New user option 'package-vc-allow-build-commands'.
+Controls for which packages Emacs runs extra build commands when
+installing directly from the package VCS repository.
+
+---
+*** New command to start an inferior Emacs loading only specific packages.
+The new command 'package-isolate' will start a new Emacs process, as
+a sub-process of Emacs where you invoke the command, in a way that
+causes the new process to load only some of the installed packages.
+The command prompts for the packages to activate in this
+sub-process, and is intended for testing Emacs and/or the packages
+in a clean environment.
 
 ** Flymake
 
@@ -646,17 +720,41 @@ of the accessibility of remote files can now time out if
 ** Notifications
 
 +++
-*** Allow to use Icon Naming Specification for app-icon
+*** Allow to use Icon Naming Specification for ':app-icon'.
 You can use a symbol as the value for ':app-icon' to provide icon name
 without specifying a file, like this:
 
-  (notifications-notify
-    :title "I am playing music" :app-icon 'multimedia-player)
+    (notifications-notify
+      :title "I am playing music" :app-icon 'multimedia-player)
 
 ** Image Dired
 
 *** New user option 'image-dired-thumb-naming'.
 You can now configure how a thumbnail is named using this option.
+
+** ERT
+
+*** New macro `skip-when' to skip 'ert-deftest' tests.
+This can help avoid some awkward skip conditions.  For example
+'(skip-unless (not noninteractive))' can be changed to the easier
+to read '(skip-when noninteractive)'.
+
+** checkdoc
+
+---
+*** New checkdock warning if not using lexical-binding.
+Checkdoc now warns if the first line of an Emacs Lisp file does not
+end with a "-*- lexical-binding: t -*-" cookie.  Customize the user
+option 'checkdoc-lexical-binding-flag' to nil to disable this warning.
+
+** url
+
++++
+*** 'url-gateway-broken-resolution' is now obsolete.
+This option was intended for use on SunOS 4.x and Ultrix systems,
+neither of which have been supported by Emacs since version 23.1.
+The user option 'url-gateway-nslookup-program' and the function
+'url-gateway-nslookup-host' are consequently also obsolete.
 
 
 * New Modes and Packages in Emacs 30.1
@@ -677,6 +775,13 @@ A major mode based on the tree-sitter library for editing HEEx files.
 A major mode based on the tree-sitter library for editing Elixir
 files.
 
++++
+** New global minor mode 'minibuffer-regexp-mode'.
+This is a minor mode for editing regular expressions in the minibuffer.
+It highlight parens via ‘show-paren-mode’ and ‘blink-matching-paren’ in
+a user-friendly way, avoids reporting alleged paren mismatches and makes
+sexp navigation more intuitive.
+
 ---
 ** The highly accessible Modus themes collection has eight items.
 The 'modus-operandi' and 'modus-vivendi' are the main themes that have
@@ -688,6 +793,24 @@ dark.  In addition to these, we now have 'modus-operandi-tinted' and
 the needs of users with red-green or blue-yellow color deficiency.
 The Info manual "(modus-themes) Top" describes the details and
 showcases all their customization options.
+
+** Project
+
+*** New user option 'project-file-history-behavior'.
+Customizing it to 'relativize' makes commands like 'project-find-file'
+and 'project-find-dir' display previous history entries relative to
+the current project.
+
+*** New user option 'project-key-prompt-style'.
+The look of the key prompt in the project switcher has been changed
+slightly.  To get the previous one, set this option to 'brackets'.
+
+*** 'project-try-vc' tries harder to find the responsible VCS.
+When 'project-vc-extra-root-markers' is non-nil, and causes
+subdirectory project to be detected which is not a VCS root, we now
+additionally traverse the parent directories until a VCS root is found
+(if any), so that the ignore rules for that repository are used, and
+the file listing's performance is still optimized.
 
 
 * Incompatible Lisp Changes in Emacs 30.1
@@ -764,15 +887,39 @@ The compatibility aliases 'x-defined-colors', 'x-color-defined-p',
 'x-color-values', and 'x-display-color-p' are now obsolete.
 
 +++
-** 'easy-mmode-define-{minor-mode,global-mode}' aliases are now obsolete.
+** 'easy-mmode-define-{minor,global}-mode' aliases are now obsolete.
 Use 'define-minor-mode' and 'define-globalized-minor-mode' instead.
 
 
 * Lisp Changes in Emacs 30.1
 
++++
+** XLFDs are no longer restricted to 255 characters.
+'font-xlfd-name' now returns an XLFD even if it is greater than 255
+characters in length, provided that the LONG_XLFDs argument is true.
+
+Other features in Emacs which employ XLFDs have been modified to
+produce and understand XLFDs larger than 255 characters.
+
 ** 'defadvice' is marked as obsolete.
-See (info "(elisp)Porting Old Advice") for help converting them
-to use `advice-add` or `define-advice instead.
+See the "(elisp) Porting Old Advice" node for help converting them
+to use 'advice-add' or 'define-advice' instead.
+
+** 'cl-old-struct-compat-mode' is marked as obsolete.
+You may need to recompile our code if it was compiled with Emacs<24.3.
+
++++
+** New macro 'static-if' for conditional evaluation of code.
+This macro hides a form from the evaluator or byte-compiler based on a
+compile-time condition.  This is handy for avoiding byte-compilation
+warnings about code that will never actually run under some
+conditions.
+
++++
+** Desktop notifications are now supported on the Haiku operating system.
+The new function 'haiku-notifications-notify' provides a subset of the
+capabilities of the 'notifications-notify' function in a manner
+analogous to 'w32-notification-notify'.
 
 +++
 ** New value 'if-regular' for the REPLACE argument to 'insert-file-contents'.
@@ -783,15 +930,16 @@ rather than signaling an error.
 +++
 ** New variable 'current-key-remap-sequence'.
 It is bound to the key sequence that caused a call to a function bound
-within `function-key-map' or `input-decode-map' around those calls.
+within 'function-key-map' or 'input-decode-map' around those calls.
 
 +++
 ** New variables describing the names of built in programs.
 The new variables 'ctags-program-name', 'ebrowse-program-name',
 'etags-program-name', 'hexl-program-name', 'emacsclient-program-name'
-and 'movemail-program-name' should be used instead of "ctags",
-"ebrowse", "etags", "hexl", and "emacsclient", when starting one of
-these built in programs in a subprocess.
+'movemail-program-name', and 'rcs2log-program-name' should be used
+instead of "ctags", "ebrowse", "etags", "hexl", "emacsclient", and
+"rcs2log", when starting one of these built in programs in a
+subprocess.
 
 +++
 ** 'x-popup-menu' now understands touch screen events.
@@ -848,24 +996,17 @@ Major modes can now set this variable to customize the behavior of the
 The previous implementation of 'forward-sentence' is moved into its
 own function, to be bound by 'forward-sentence-function'.
 
-*** New buffer-local variable 'treesit-sentence-type-regexp'.
-Similarly to 'treesit-defun-type-regexp', this variable is used to
-define "sentences" in tree-sitter enabled modes.
-
 *** New function 'treesit-forward-sentence'.
-All tree-sitter enabled modes that define 'treesit-sentence-type-regexp'
-now set 'forward-sentence-function' to call 'treesit-forward-sentence'.
+All tree-sitter enabled modes that define 'sentence' in
+'treesit-thing-settings' now set 'forward-sentence-function' to call
+'treesit-forward-sentence'.
 
 ** Functions and variables to move by program sexps
 
-*** New buffer-local variable 'treesit-sexp-type-regexp'.
-Similarly to 'treesit-defun-type-regexp', this variable is used to
-define "sexps" in tree-sitter enabled modes.
-
 *** New function 'treesit-forward-sexp'.
 Tree-sitter conditionally sets 'forward-sexp-function' for major modes
-that have defined 'treesit-sexp-type-regexp' to enable sexp-related
-motion commands.
+that have defined 'sexp' in 'treesit-thing-settings' to enable
+sexp-related motion commands.
 
 ** New or changed byte-compilation warnings
 

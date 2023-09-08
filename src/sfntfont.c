@@ -322,10 +322,29 @@ sfnt_decode_family_style (struct sfnt_name_table *name,
   struct sfnt_name_record family_rec, style_rec;
   unsigned char *family_data, *style_data;
 
-  family_data = sfnt_find_name (name, SFNT_NAME_FONT_FAMILY,
+  /* Because MS-Windows is incapable of treating font families
+     comprising more than four styles correctly, the TrueType
+     specification incorporates additional PREFERRED_FAMILY and
+     PREFERRED_SUBFAMILY name resources that are meant to be consulted
+     over the traditional family and subfamily resources.  When
+     present within fonts supplying unusual styles, these names hold
+     the ``actual'' typographic family and style of the font, in lieu
+     of the font family with the style affixed to the front and
+     Regular.  */
+
+  family_data = sfnt_find_name (name, SFNT_NAME_PREFERRED_FAMILY,
 				&family_rec);
-  style_data = sfnt_find_name (name, SFNT_NAME_FONT_SUBFAMILY,
+
+  if (!family_data)
+    family_data = sfnt_find_name (name, SFNT_NAME_FONT_FAMILY,
+				  &family_rec);
+
+  style_data = sfnt_find_name (name, SFNT_NAME_PREFERRED_SUBFAMILY,
 			       &style_rec);
+
+  if (!style_data)
+    style_data = sfnt_find_name (name, SFNT_NAME_FONT_SUBFAMILY,
+				 &style_rec);
 
   if (!family_data || !style_data)
     return 1;
@@ -834,6 +853,9 @@ sfnt_grok_registry (int fd, struct sfnt_font_desc *desc,
    newer font description DESC, and should be removed from the list of
    system fonts.
 
+   If both PREV and DESC are variable fonts, remove styles within PREV
+   that overlap with DESC and return false.
+
    If PREV is a variable font, potentially adjust its list of
    instances.  */
 
@@ -841,8 +863,8 @@ static bool
 sfnt_replace_fonts_p (struct sfnt_font_desc *prev,
 		      struct sfnt_font_desc *desc)
 {
-  int i, width, weight, slant, count_instance;
-  Lisp_Object tem;
+  int i, j, width, weight, slant, count_instance;
+  Lisp_Object tem, tem1;
   bool family_equal_p;
 
   family_equal_p = !NILP (Fstring_equal (prev->family,
@@ -851,7 +873,54 @@ sfnt_replace_fonts_p (struct sfnt_font_desc *prev,
   if ((!NILP (desc->instances)
        || !NILP (Fstring_equal (prev->style, desc->style)))
       && family_equal_p)
-    return true;
+    {
+      /* If both inputs are GX fonts...  */
+      if (!NILP (desc->instances) && !NILP (prev->instances))
+	{
+	  /* ...iterate over each of the styles provided by PREV.  If
+	     they match any styles within DESC, remove the old style
+	     from PREV.  */
+
+	  count_instance = 0;
+	  for (i = 0; i < ASIZE (prev->instances); ++i)
+	    {
+	      tem = AREF (prev->instances, i);
+
+	      if (NILP (tem))
+		continue;
+
+	      for (j = 0; j < ASIZE (desc->instances); ++j)
+		{
+		  tem1 = AREF (desc->instances, j);
+
+		  if (NILP (tem1))
+		    continue;
+
+		  if (!NILP (Fequal (tem1, tem)))
+		    {
+		      /* tem1 is identical to tem, so opt for it over
+			 tem.  */
+		      ASET (prev->instances, i, Qnil);
+		      goto next;
+		    }
+		}
+
+	      /* Increment the number of instances remaining within
+		 PREV.  */
+	      count_instance++;
+
+	    next:
+	      ;
+	    }
+
+	  /* Return true if no instances remain inside
+	     PREV->instances, so that the now purposeless desc may be
+	     removed.  */
+	  return !count_instance;
+	}
+
+      return true;
+    }
 
   if (NILP (prev->instances) || !family_equal_p)
     return false;
@@ -1943,6 +2012,11 @@ struct sfntfont_get_glyph_outline_dcontext
   /* glyf table.  */
   struct sfnt_glyf_table *glyf;
 
+  /* hmtx, hhea and maxp tables utilized to acquire glyph metrics.  */
+  struct sfnt_hmtx_table *hmtx;
+  struct sfnt_hhea_table *hhea;
+  struct sfnt_maxp_table *maxp;
+
   /* Variation settings, or NULL.  */
   struct sfnt_blend *blend;
 };
@@ -1985,6 +2059,23 @@ static void
 sfntfont_free_glyph (struct sfnt_glyph *glyph, void *dcontext)
 {
   sfnt_free_glyph (glyph);
+}
+
+/* Return unscaled glyph metrics for the glyph designated by the ID
+   GLYPH within *METRICS, utilizing tables within DCONTEXT.
+
+   Value is 1 upon failure, 0 otherwise.  */
+
+static int
+sfntfont_get_metrics (sfnt_glyph glyph, struct sfnt_glyph_metrics *metrics,
+		      void *dcontext)
+{
+  struct sfntfont_get_glyph_outline_dcontext *tables;
+
+  tables = dcontext;
+  return sfnt_lookup_glyph_metrics (glyph, -1, metrics,
+				    tables->hmtx, tables->hhea,
+				    NULL, tables->maxp);
 }
 
 /* Dereference the outline OUTLINE.  Free it once refcount reaches
@@ -2112,6 +2203,9 @@ sfntfont_get_glyph_outline (sfnt_glyph glyph_code,
   dcontext.loca_long = loca_long;
   dcontext.loca_short = loca_short;
   dcontext.glyf = glyf;
+  dcontext.hhea = hhea;
+  dcontext.hmtx = hmtx;
+  dcontext.maxp = maxp;
   dcontext.blend = (index != -1 ? blend : NULL);
 
   /* Now load the glyph's unscaled metrics into TEMP.  */
@@ -2160,12 +2254,14 @@ sfntfont_get_glyph_outline (sfnt_glyph glyph_code,
 					    &temp,
 					    sfntfont_get_glyph,
 					    sfntfont_free_glyph,
+					    sfntfont_get_metrics,
 					    &dcontext);
       else
 	outline = sfnt_build_glyph_outline (glyph, scale,
 					    &temp,
 					    sfntfont_get_glyph,
 					    sfntfont_free_glyph,
+					    sfntfont_get_metrics,
 					    &dcontext);
     }
 
@@ -3197,7 +3293,7 @@ sfntfont_open (struct frame *f, Lisp_Object font_entity,
 
  cancel_blend:
   /* Calculate the xfld name.  */
-  font->props[FONT_NAME_INDEX] = Ffont_xlfd_name (font_object, Qnil);
+  font->props[FONT_NAME_INDEX] = Ffont_xlfd_name (font_object, Qnil, Qt);
 
 #ifdef HAVE_HARFBUZZ
   /* HarfBuzz will potentially read font tables after the font has

@@ -364,6 +364,9 @@ struct sfnt_cmap_format_4
   /* log2(searchRange/2) */
   uint16_t entry_selector;
 
+  /* (2 * segCount) - searchRange */
+  uint16_t range_shift;
+
   /* Variable-length data.  */
   uint16_t *end_code;
   uint16_t *reserved_pad;
@@ -623,16 +626,16 @@ struct sfnt_compound_glyph_component
 
   /* Various scale formats.  */
   union {
-    uint16_t scale;
+    int16_t scale;
     struct {
-      uint16_t xscale;
-      uint16_t yscale;
+      int16_t xscale;
+      int16_t yscale;
     } a;
     struct {
-      uint16_t xscale;
-      uint16_t scale01;
-      uint16_t scale10;
-      uint16_t yscale;
+      int16_t xscale;
+      int16_t scale01;
+      int16_t scale10;
+      int16_t yscale;
     } b;
   } u;
 };
@@ -688,9 +691,15 @@ typedef void (*sfnt_curve_to_proc) (struct sfnt_point,
 				    struct sfnt_point,
 				    void *);
 
+/* Forward declaration for use in sfnt_get_metrics_proc.  */
+struct sfnt_glyph_metrics;
+
 typedef struct sfnt_glyph *(*sfnt_get_glyph_proc) (sfnt_glyph, void *,
 						   bool *);
 typedef void (*sfnt_free_glyph_proc) (struct sfnt_glyph *, void *);
+typedef int (*sfnt_get_metrics_proc) (sfnt_glyph,
+				      struct sfnt_glyph_metrics *,
+				      void *);
 
 
 
@@ -1372,6 +1381,7 @@ extern void sfnt_free_glyph (struct sfnt_glyph *);
   struct sfnt_glyph_metrics *,	\
   sfnt_get_glyph_proc,		\
   sfnt_free_glyph_proc,		\
+  sfnt_get_metrics_proc,	\
   void *
 extern struct sfnt_glyph_outline *sfnt_build_glyph_outline (PROTOTYPE);
 #undef PROTOTYPE

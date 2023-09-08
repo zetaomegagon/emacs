@@ -152,6 +152,17 @@ edited even if this option is enabled."
   :group 'help
   :version "28.1")
 
+(defcustom help-display-function-type t
+  "Whether to display type specifiers of functions in \"*Help*\" buffers.
+
+The type specifier of a function is returned by `comp-function-type-spec',
+which see.  When this variable is non-nil, \\[describe-function] will \
+display the function's
+type specifier when available."
+  :type 'boolean
+  :group 'help
+  :version "30.1")
+
 (defun help--symbol-class (s)
   "Return symbol class characters for symbol S."
   (when (stringp s)
@@ -358,7 +369,8 @@ if the variable `help-downcase-arguments' is non-nil."
       (setq doc (replace-regexp-in-string
                  ;; This is heuristic, but covers all common cases
                  ;; except ARG1-ARG2
-                 (concat "\\<"                   ; beginning of word
+                 (concat "([^ ]+ .*"             ; skip function name
+                         "\\<"                   ; beginning of word
                          "\\(?:[a-z-]*-\\)?"     ; for xxx-ARG
                          "\\("
                          (regexp-quote arg)
@@ -715,8 +727,8 @@ the C sources, too."
           (unless (and (symbolp function)
                        (get function 'reader-construct))
             (insert high-usage "\n")
-            (when-let* ((res (and (native-comp-available-p)
-                                  (comp-function-type-spec function)))
+            (when-let* ((gate help-display-function-type)
+                        (res (comp-function-type-spec function))
                         (type-spec (car res))
                         (kind (cdr res)))
               (insert (format
@@ -1073,10 +1085,8 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 		  (concat beg "byte-compiled Lisp function"))
                  ((module-function-p def)
                   (concat beg "module function"))
-		 ((eq (car-safe def) 'lambda)
+		 ((memq (car-safe def) '(lambda closure))
 		  (concat beg "Lisp function"))
-		 ((eq (car-safe def) 'closure)
-		  (concat beg "Lisp closure"))
 		 ((keymapp def)
 		  (let ((is-full nil)
 			(elts (cdr-safe def)))
@@ -1740,8 +1750,7 @@ If FRAME is omitted or nil, use the selected frame."
 		     (called-interactively-p 'interactive))
     (unless face
       (setq face 'default))
-    (if (not (listp face))
-        (setq face (list face)))
+    (setq face (ensure-list face))
     (with-help-window (help-buffer)
       (with-current-buffer standard-output
         (dolist (f face (buffer-string))

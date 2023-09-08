@@ -18,6 +18,7 @@ You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
+
 #include <allocator.h>
 #include <assert.h>
 #include <careadlinkat.h>
@@ -31,11 +32,14 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stat-time.h>
 #include <stdckdint.h>
 #include <string.h>
-#include <sys/param.h>
 #include <timespec.h>
 #include <unistd.h>
+
+#include <sys/param.h>
+#include <sys/stat.h>
 
 /* Old NDK versions lack MIN and MAX.  */
 #include <minmax.h>
@@ -47,6 +51,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "blockinput.h"
 #include "coding.h"
 #include "epaths.h"
+#include "systime.h"
 
 /* Whether or not Emacs is running inside the application process and
    Android windowing should be enabled.  */
@@ -187,6 +192,10 @@ static struct android_emacs_window window_class;
 /* Various methods associated with the EmacsCursor class.  */
 static struct android_emacs_cursor cursor_class;
 
+/* The time at which Emacs was installed, which also supplies the
+   mtime of asset files.  */
+struct timespec emacs_installation_time;
+
 /* The last event serial used.  This is a 32 bit value, but it is
    stored in unsigned long to be consistent with X.  */
 unsigned int event_serial;
@@ -273,6 +282,46 @@ static volatile sig_atomic_t android_pselect_interrupted;
 
 #endif
 
+/* Set the task name of the current task to NAME, a string at most 16
+   characters in length.
+
+   This name is displayed as that of the task (LWP)'s pthread in
+   GDB.  */
+
+static void
+android_set_task_name (const char *name)
+{
+  char proc_name[INT_STRLEN_BOUND (long)
+		 + sizeof "/proc/self/task//comm"];
+  int fd;
+  pid_t lwp;
+  size_t length;
+
+  lwp = gettid ();
+  sprintf (proc_name, "/proc/self/task/%ld/comm", (long) lwp);
+  fd = open (proc_name, O_WRONLY | O_TRUNC);
+
+  if (fd < 0)
+    goto failure;
+
+  length = strlen (name);
+
+  if (write (fd, name, MIN (16, length)) < 0)
+    goto failure;
+
+  close (fd);
+  return;
+
+ failure:
+  __android_log_print (ANDROID_LOG_WARN, __func__,
+		       "Failed to set task name for LWP %ld: %s",
+		       (long) lwp, strerror (errno));
+
+  /* Close the file descriptor if it is already set.  */
+  if (fd >= 0)
+    close (fd);
+}
+
 static void *
 android_run_select_thread (void *data)
 {
@@ -288,6 +337,9 @@ android_run_select_thread (void *data)
   sigset_t signals, waitset;
   int sig;
 #endif
+
+  /* Set the name of this thread's LWP for debugging purposes.  */
+  android_set_task_name ("`android_select'");
 
 #if __ANDROID_API__ < 16
   /* A completely different implementation is used when building for
@@ -788,6 +840,9 @@ android_run_debug_thread (void *data)
   char *line;
   size_t n;
 
+  /* Set the name of this thread's LWP for debugging purposes.  */
+  android_set_task_name ("`android_debug'");
+
   fd = (int) (intptr_t) data;
   file = fdopen (fd, "r");
 
@@ -824,22 +879,18 @@ android_user_full_name (struct passwd *pw)
     return (char *) "Android user";
 
   return pw->pw_gecos;
-#else
+#else /* !HAVE_STRUCT_PASSWD_PW_GECOS */
   return "Android user";
-#endif
+#endif /* HAVE_STRUCT_PASSWD_PW_GECOS */
 }
 
 
 
-/* Determine whether or not the specified file NAME describes a file
-   in the directory DIR, which should be an absolute file name.  NAME
-   must be in canonical form.
+/* Return whether or not the specified file NAME designates a file in
+   the directory DIR, which should be an absolute file name.  NAME
+   must be in canonical form.  */
 
-   Value is NULL if not.  Otherwise, it is a pointer to the first
-   character in NAME after the part containing DIR and its trailing
-   directory separator.  */
-
-const char *
+bool
 android_is_special_directory (const char *name, const char *dir)
 {
   size_t len;
@@ -848,7 +899,7 @@ android_is_special_directory (const char *name, const char *dir)
 
   len = strlen (dir);
   if (strncmp (name, dir, len))
-    return NULL;
+    return false;
 
   /* Now see if the character of NAME after len is either a directory
      separator or a terminating NULL.  */
@@ -856,20 +907,13 @@ android_is_special_directory (const char *name, const char *dir)
   name += len;
   switch (*name)
     {
-    case '\0':
-      /* Return the empty string if this is the end of the file
-	 name.  */
-      return name;
-
-    case '/':
-      /* Return NAME (with the separator removed) if it describes a
-	 file.  */
-      return name + 1;
-
-    default:
-      /* The file name doesn't match.  */
-      return NULL;
+    case '\0': /* NAME is an exact match for DIR.  */
+    case '/':  /* NAME is a constituent of DIR.  */
+      return true;
     }
+
+  /* The file name doesn't match.  */
+  return false;
 }
 
 #if 0
@@ -1247,6 +1291,7 @@ NATIVE_NAME (setEmacsParams) (JNIEnv *env, jobject object,
   int pipefd[2];
   pthread_t thread;
   const char *java_string;
+  struct stat statb;
 
   /* Set the Android API level early, as it is used by
      `android_vfs_init'.  */
@@ -1341,11 +1386,22 @@ NATIVE_NAME (setEmacsParams) (JNIEnv *env, jobject object,
 
       android_class_path = strdup ((const char *) java_string);
 
-      if (!android_files_dir)
+      if (!android_class_path)
 	emacs_abort ();
 
       (*env)->ReleaseStringUTFChars (env, (jstring) class_path,
 				     java_string);
+    }
+
+  /* Derive the installation date from the modification time of the
+     file constitituing the class path.  */
+
+  emacs_installation_time = invalid_timespec ();
+
+  if (class_path)
+    {
+      if (!stat (android_class_path, &statb))
+	emacs_installation_time = get_stat_mtime (&statb);
     }
 
   /* Calculate the site-lisp path.  */
@@ -2265,6 +2321,12 @@ NATIVE_NAME (shouldForwardMultimediaButtons) (JNIEnv *env,
   /* Yes, android_pass_multimedia_buttons_to_system is being
      read from the UI thread.  */
   return !android_pass_multimedia_buttons_to_system;
+}
+
+JNIEXPORT jboolean JNICALL
+NATIVE_NAME (shouldForwardCtrlSpace) (JNIEnv *env, jobject object)
+{
+  return !android_intercept_control_space;
 }
 
 JNIEXPORT void JNICALL

@@ -26,6 +26,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <errno.h>
 #include <minmax.h>
 #include <string.h>
+#include <systime.h>
 #include <semaphore.h>
 
 #include <sys/stat.h>
@@ -213,6 +214,10 @@ struct android_vops
      to the delegating at-func, and is probably
      AT_SYMLINK_NOFOLLOW.  */
   int (*chmod) (struct android_vnode *, mode_t, int);
+
+  /* Return the target of VNODE if it is a symbolic link, or -1.
+     Value and errno are the same as with `readlink'.  */
+  ssize_t (*readlink) (struct android_vnode *, char *, size_t);
 
   /* Open the specified VNODE as a directory.
      Value is a ``directory handle'', or NULL upon failure.  */
@@ -625,6 +630,8 @@ static int android_unix_stat (struct android_vnode *, struct stat *);
 static int android_unix_access (struct android_vnode *, int);
 static int android_unix_mkdir (struct android_vnode *, mode_t);
 static int android_unix_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_unix_readlink (struct android_vnode *, char *,
+				      size_t);
 static struct android_vdir *android_unix_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with Unix filesystem VFS
@@ -643,6 +650,7 @@ static struct android_vops unix_vfs_ops =
     android_unix_access,
     android_unix_mkdir,
     android_unix_chmod,
+    android_unix_readlink,
     android_unix_opendir,
   };
 
@@ -896,6 +904,16 @@ android_unix_chmod (struct android_vnode *vnode, mode_t mode,
 
   vp = (struct android_unix_vnode *) vnode;
   return fchmodat (AT_FDCWD, vp->name, mode, flags);
+}
+
+static ssize_t
+android_unix_readlink (struct android_vnode *vnode, char *buffer,
+		       size_t size)
+{
+  struct android_unix_vnode *vp;
+
+  vp = (struct android_unix_vnode *) vnode;
+  return readlink (vp->name, buffer, size);
 }
 
 static struct dirent *
@@ -1606,6 +1624,8 @@ static int android_afs_stat (struct android_vnode *, struct stat *);
 static int android_afs_access (struct android_vnode *, int);
 static int android_afs_mkdir (struct android_vnode *, mode_t);
 static int android_afs_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_afs_readlink (struct android_vnode *, char *,
+				     size_t);
 static struct android_vdir *android_afs_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with asset VFS nodes.  */
@@ -1623,6 +1643,7 @@ static struct android_vops afs_vfs_ops =
     android_afs_access,
     android_afs_mkdir,
     android_afs_chmod,
+    android_afs_readlink,
     android_afs_opendir,
   };
 
@@ -2038,7 +2059,7 @@ android_afs_stat (struct android_vnode *vnode, struct stat *statb)
       /* Concoct a nonexistent device and an inode number.  */
       statb->st_dev = -1;
       statb->st_ino = 0;
-      return 0;
+      goto set_file_times;
     }
 
   /* AASSET_MODE_STREAMING is fastest here.  */
@@ -2063,6 +2084,24 @@ android_afs_stat (struct android_vnode *vnode, struct stat *statb)
 
   /* Close the asset.  */
   AAsset_close (asset_desc);
+
+ set_file_times:
+
+  /* If the installation date can be ascertained, return that as the
+     file's modification time.  */
+
+  if (timespec_valid_p (emacs_installation_time))
+    {
+#ifdef STAT_TIMESPEC
+      STAT_TIMESPEC (statb, st_mtim) = emacs_installation_time;
+#else /* !STAT_TIMESPEC */
+      /* Headers supplied by the NDK r10b contain a `struct stat'
+	 without POSIX fields for nano-second timestamps.  */
+      statb->st_mtime = emacs_installation_time.tv_sec;
+      statb->st_mtime_nsec = emacs_installation_time.tv_nsec;
+#endif /* STAT_TIMESPEC */
+    }
+
   return 0;
 }
 
@@ -2136,6 +2175,28 @@ android_afs_chmod (struct android_vnode *vnode, mode_t mode,
 		   int flags)
 {
   errno = EROFS;
+  return -1;
+}
+
+static ssize_t
+android_afs_readlink (struct android_vnode *vnode, char *buffer,
+		      size_t size)
+{
+  struct android_afs_vnode *vp;
+  const char *dir;
+
+  vp = (struct android_afs_vnode *) vnode;
+  dir = android_scan_directory_tree (vp->name, NULL);
+
+  /* As there are no symlinks in /assets, just return -1 with errno
+     set to a reasonable value contingent upon whether VP->name
+     actually exists.  */
+
+  if (dir)
+    errno = EINVAL;
+  else
+    errno = ENOENT;
+
   return -1;
 }
 
@@ -2379,6 +2440,8 @@ static int android_content_stat (struct android_vnode *, struct stat *);
 static int android_content_access (struct android_vnode *, int);
 static int android_content_mkdir (struct android_vnode *, mode_t);
 static int android_content_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_content_readlink (struct android_vnode *, char *,
+					 size_t);
 static struct android_vdir *android_content_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with the content VFS node.  */
@@ -2396,6 +2459,7 @@ static struct android_vops content_vfs_ops =
     android_content_access,
     android_content_mkdir,
     android_content_chmod,
+    android_content_readlink,
     android_content_opendir,
   };
 
@@ -2600,7 +2664,7 @@ static int
 android_content_mkdir (struct android_vnode *vnode, mode_t mode)
 {
   errno = EEXIST;
-  return 0;
+  return -1;
 }
 
 static int
@@ -2608,7 +2672,15 @@ android_content_chmod (struct android_vnode *vnode, mode_t mode,
 		       int flags)
 {
   errno = EACCES;
-  return 0;
+  return -1;
+}
+
+static ssize_t
+android_content_readlink (struct android_vnode *vnode, char *buffer,
+			  size_t size)
+{
+  errno = EINVAL;
+  return -1;
 }
 
 static struct dirent *
@@ -2810,10 +2882,7 @@ static bool
 android_check_content_access (const char *uri, int mode)
 {
   jobject string;
-  size_t length;
   jboolean rc, read, write;
-
-  length = strlen (uri);
 
   string = (*android_java_env)->NewStringUTF (android_java_env, uri);
   android_exception_check ();
@@ -2868,6 +2937,8 @@ static int android_authority_stat (struct android_vnode *, struct stat *);
 static int android_authority_access (struct android_vnode *, int);
 static int android_authority_mkdir (struct android_vnode *, mode_t);
 static int android_authority_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_authority_readlink (struct android_vnode *, char *,
+					   size_t);
 static struct android_vdir *android_authority_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with the content VFS node.  */
@@ -2885,6 +2956,7 @@ static struct android_vops authority_vfs_ops =
     android_authority_access,
     android_authority_mkdir,
     android_authority_chmod,
+    android_authority_readlink,
     android_authority_opendir,
   };
 
@@ -3179,6 +3251,14 @@ android_authority_chmod (struct android_vnode *vnode, mode_t mode,
   return -1;
 }
 
+static ssize_t
+android_authority_readlink (struct android_vnode *vnode, char *buffer,
+			    size_t size)
+{
+  errno = EINVAL;
+  return -1;
+}
+
 static struct android_vdir *
 android_authority_opendir (struct android_vnode *vnode)
 {
@@ -3285,6 +3365,8 @@ static int android_saf_root_stat (struct android_vnode *, struct stat *);
 static int android_saf_root_access (struct android_vnode *, int);
 static int android_saf_root_mkdir (struct android_vnode *, mode_t);
 static int android_saf_root_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_saf_root_readlink (struct android_vnode *, char *,
+					  size_t);
 static struct android_vdir *android_saf_root_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with the SAF root VFS node.  */
@@ -3302,6 +3384,7 @@ static struct android_vops saf_root_vfs_ops =
     android_saf_root_access,
     android_saf_root_mkdir,
     android_saf_root_chmod,
+    android_saf_root_readlink,
     android_saf_root_opendir,
   };
 
@@ -3585,6 +3668,14 @@ android_saf_root_chmod (struct android_vnode *vnode, mode_t mode,
 			int flags)
 {
   errno = EACCES;
+  return -1;
+}
+
+static ssize_t
+android_saf_root_readlink (struct android_vnode *vnode, char *buffer,
+			   size_t size)
+{
+  errno = EINVAL;
   return -1;
 }
 
@@ -4319,11 +4410,13 @@ android_saf_move_document (const char *uri, char **doc_id,
 
   /* Do the rename.  */
   method = service_class.move_document;
-  result = (*android_java_env)->CallObjectMethod (android_java_env,
-						  emacs_service,
-						  method, uri1,
-						  doc_id1, dir_name1,
-						  dst_id1, src_id1);
+  result
+    = (*android_java_env)->CallNonvirtualObjectMethod (android_java_env,
+						       emacs_service,
+						       service_class.class,
+						       method, uri1,
+						       doc_id1, dir_name1,
+						       dst_id1, src_id1);
   if (android_saf_exception_check (5, src_id1, dst_id1, dir_name1,
 				   doc_id1, uri1))
     {
@@ -4429,6 +4522,8 @@ static int android_saf_tree_stat (struct android_vnode *, struct stat *);
 static int android_saf_tree_access (struct android_vnode *, int);
 static int android_saf_tree_mkdir (struct android_vnode *, mode_t);
 static int android_saf_tree_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_saf_tree_readlink (struct android_vnode *, char *,
+					  size_t);
 static struct android_vdir *android_saf_tree_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with SAF tree VFS nodes.  */
@@ -4446,6 +4541,7 @@ static struct android_vops saf_tree_vfs_ops =
     android_saf_tree_access,
     android_saf_tree_mkdir,
     android_saf_tree_chmod,
+    android_saf_tree_readlink,
     android_saf_tree_opendir,
   };
 
@@ -5141,6 +5237,16 @@ android_saf_tree_chmod (struct android_vnode *vnode, mode_t mode,
   return 0;
 }
 
+static ssize_t
+android_saf_tree_readlink (struct android_vnode *vnode, char *buffer,
+			   size_t size)
+{
+  /* Return EINVAL.  Symlinks aren't exposed to clients by the
+     SAF.  */
+  errno = EINVAL;
+  return -1;
+}
+
 /* Open a database Cursor containing each directory entry within the
    supplied SAF tree vnode VP.
 
@@ -5565,6 +5671,7 @@ static struct android_vops saf_file_vfs_ops =
     android_saf_tree_access,
     android_saf_tree_mkdir,
     android_saf_tree_chmod,
+    android_saf_tree_readlink,
     android_saf_file_opendir,
   };
 
@@ -5845,6 +5952,8 @@ static int android_saf_new_stat (struct android_vnode *, struct stat *);
 static int android_saf_new_access (struct android_vnode *, int);
 static int android_saf_new_mkdir (struct android_vnode *, mode_t);
 static int android_saf_new_chmod (struct android_vnode *, mode_t, int);
+static ssize_t android_saf_new_readlink (struct android_vnode *, char *,
+					 size_t);
 static struct android_vdir *android_saf_new_opendir (struct android_vnode *);
 
 /* Vector of VFS operations associated with SAF new VFS nodes.  */
@@ -5862,6 +5971,7 @@ static struct android_vops saf_new_vfs_ops =
     android_saf_new_access,
     android_saf_new_mkdir,
     android_saf_new_chmod,
+    android_saf_new_readlink,
     android_saf_new_opendir,
   };
 
@@ -6131,6 +6241,14 @@ android_saf_new_chmod (struct android_vnode *vnode, mode_t mode,
   return -1;
 }
 
+static ssize_t
+android_saf_new_readlink (struct android_vnode *vnode, char *buffer,
+			  size_t size)
+{
+  errno = ENOENT;
+  return -1;
+}
+
 static struct android_vdir *
 android_saf_new_opendir (struct android_vnode *vnode)
 {
@@ -6232,6 +6350,7 @@ static struct android_vops root_vfs_ops =
     android_unix_access,
     android_unix_mkdir,
     android_unix_chmod,
+    android_unix_readlink,
     android_unix_opendir,
   };
 
@@ -6961,6 +7080,42 @@ android_fchmodat (int dirfd, const char *pathname, mode_t mode,
     return -1;
 
   rc = (*vp->ops->chmod) (vp, mode, flags);
+  (*vp->ops->close) (vp);
+  return rc;
+}
+
+/* Like `android_fstatat', but return the target of any symbolic link
+   at PATHNAME instead of checking file status.  */
+
+ssize_t
+android_readlinkat (int dirfd, const char *restrict pathname,
+		    char *restrict buf, size_t bufsiz)
+{
+  char buffer[PATH_MAX + 1];
+  struct android_vnode *vp;
+  ssize_t rc;
+
+  if (dirfd == AT_FDCWD || pathname[0] == '/')
+    goto vfs;
+
+  /* Now establish whether DIRFD is a file descriptor corresponding to
+     an open VFS directory stream.  */
+
+  if (!android_fstatat_1 (dirfd, pathname, buffer, PATH_MAX + 1))
+    {
+      pathname = buffer;
+      goto vfs;
+    }
+
+  /* Fall back to readlinkat.  */
+  return readlinkat (dirfd, pathname, buf, bufsiz);
+
+ vfs:
+  vp = android_name_file (pathname);
+  if (!vp)
+    return -1;
+
+  rc = (*vp->ops->readlink) (vp, buf, bufsiz);
   (*vp->ops->close) (vp);
   return rc;
 }

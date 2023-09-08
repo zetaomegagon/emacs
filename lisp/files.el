@@ -1283,10 +1283,8 @@ Tip: You can use this expansion of remote identifier components
      returns a remote file name for file \"/bin/sh\" that has the
      same remote identifier as FILE but expanded; a name such as
      \"/sudo:root@myhost:/bin/sh\"."
-  (let ((handler (find-file-name-handler file 'file-remote-p)))
-    (if handler
-	(funcall handler 'file-remote-p file identification connected)
-      nil)))
+  (when-let ((handler (find-file-name-handler file 'file-remote-p)))
+    (funcall handler 'file-remote-p file identification connected)))
 
 ;; Probably this entire variable should be obsolete now, in favor of
 ;; something Tramp-related (?).  It is not used in many places.
@@ -1998,6 +1996,8 @@ INHIBIT-BUFFER-HOOKS non-nil.
 Note: Be careful with let-binding this hook considering it is
 frequently used for cleanup.")
 
+(defvar find-alternate-file-dont-kill-client nil
+  "If non-nil, `server-buffer-done' should not delete the client.")
 (defun find-alternate-file (filename &optional wildcards)
   "Find file FILENAME, select its buffer, kill previous buffer.
 If the current buffer now contains an empty file that you just visited
@@ -2044,7 +2044,8 @@ killed."
     ;; save a modified buffer visiting a file.  Rather, `kill-buffer'
     ;; asks that itself.  Thus, there's no need to temporarily do
     ;; `(set-buffer-modified-p nil)' before running this hook.
-    (run-hooks 'kill-buffer-hook)
+    (let ((find-alternate-file-dont-kill-client 'dont-kill-client))
+      (run-hooks 'kill-buffer-hook))
     ;; Okay, now we can end-of-life the old buffer.
     (if (get-buffer " **lose**")
 	(kill-buffer " **lose**"))
@@ -6621,7 +6622,15 @@ into NEWNAME instead."
 				     (file-attributes directory))))
 	      (follow-flag (unless follow 'nofollow)))
 	  (if modes (set-file-modes newname modes follow-flag))
-	  (if times (set-file-times newname times follow-flag)))))))
+	  (when times
+            ;; When built for an Android GUI build, don't attempt to
+            ;; set file times for a file within /content, as the
+            ;; Android VFS layer does not provide means to change file
+            ;; timestamps.
+            (when (or (not (and (eq system-type 'android)
+                                (featurep 'android)))
+                      (not (string-prefix-p "/content/" newname)))
+                (set-file-times newname times follow-flag))))))))
 
 
 ;; At time of writing, only info uses this.
@@ -8553,7 +8562,7 @@ the leading `-' character."
 (defun file-modes-symbolic-to-number (modes &optional from)
   "Convert symbolic file modes to numeric file modes.
 MODES is the string to convert, it should match
-\"[ugoa]*([+-=][rwxXstugo]*)+,...\".
+\"[ugoa]*([+=-][rwxXstugo]*)+,...\".
 See Info node `(coreutils)File permissions' for more information on this
 notation.
 FROM (or 0 if nil) gives the mode bits on which to base permissions if
