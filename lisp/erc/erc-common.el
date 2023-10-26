@@ -60,6 +60,7 @@
                                                      ((obsolete erc-send-this))
                                                    erc-send-this))))
   (lines nil :type (list-of string))
+  (abortp nil :type (list-of symbol))
   (cmdp nil :type boolean))
 
 (cl-defstruct (erc-server-user (:type vector) :named)
@@ -80,16 +81,13 @@
   (string "" :type string :documentation "Received name of target.")
   (symbol nil :type symbol :documentation "Case-mapped name as symbol."))
 
-;; At some point, it may make sense to add a query type with an
-;; account field, which may help support reassociation across
-;; reconnects and nick changes (likely requires v3 extensions).
-;;
-;; These channel variants should probably take on a `joined' field to
-;; track "joinedness", which `erc-server-JOIN', `erc-server-PART',
-;; etc. should toggle.  Functions like `erc--current-buffer-joined-p'
-;; may find it useful.
+;; At some point, it may make sense to add a separate query type,
+;; possibly with an account field to help reassociation across
+;; reconnects and nick changes.
 
-(cl-defstruct (erc--target-channel (:include erc--target)))
+(cl-defstruct (erc--target-channel (:include erc--target))
+  (joined-p nil :type boolean :documentation "Whether channel is joined."))
+
 (cl-defstruct (erc--target-channel-local (:include erc--target-channel)))
 
 ;; Beginning in 5.5/29.1, the `tags' field may take on one of two
@@ -270,18 +268,20 @@ instead of a `set' state, which precludes any actual saving."
              " above."))))))
 
 (defun erc--fill-module-docstring (&rest strings)
+  "Concatenate STRINGS and fill as a doc string."
+  ;; Perhaps it's better to mimic `internal--format-docstring-line'
+  ;; and use basic filling instead of applying a major mode?
   (with-temp-buffer
-    (emacs-lisp-mode)
-    (insert "(defun foo ()\n"
-            (format "%S" (apply #'concat strings))
-            "\n(ignore))")
+    (delay-mode-hooks
+      (if (fboundp 'lisp-data-mode) (lisp-data-mode) (emacs-lisp-mode)))
+    (insert (format "%S" (apply #'concat strings)))
     (goto-char (point-min))
-    (forward-line 2)
-    (let ((emacs-lisp-docstring-fill-column 65)
+    (forward-line)
+    (let ((fill-column 65)
           (sentence-end-double-space t))
       (fill-paragraph))
     (goto-char (point-min))
-    (nth 3 (read (current-buffer)))))
+    (read (current-buffer))))
 
 (defmacro erc--find-feature (name alias)
   `(pcase (erc--find-group ',name ,(and alias (list 'quote alias)))
@@ -423,6 +423,13 @@ nil."
                           (when (or (not ,pred) (funcall ,pred))
                             ,@forms))
                         ,process)))
+
+(defvar-local erc--target nil
+  "A permanent `erc--target' struct instance in channel and query buffers.")
+
+(define-inline erc-target ()
+  "Return target of current buffer, if any, as a string."
+  (inline-quote (and erc--target (erc--target-string erc--target))))
 
 (defun erc-log-aux (string)
   "Do the debug logging of STRING."

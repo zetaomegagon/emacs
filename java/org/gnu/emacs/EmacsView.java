@@ -24,6 +24,7 @@ import android.content.Context;
 import android.text.InputType;
 
 import android.view.ContextMenu;
+import android.view.DragEvent;
 import android.view.View;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -437,6 +438,16 @@ public final class EmacsView extends ViewGroup
     damageRegion.union (damageRect);
   }
 
+  /* This function enables damage to be recorded without consing a new
+     Rect object.  */
+
+  public void
+  damageRect (int left, int top, int right, int bottom)
+  {
+    EmacsService.checkEmacsThread ();
+    damageRegion.op (left, top, right, bottom, Region.Op.UNION);
+  }
+
   /* This method is called from both the UI thread and the Emacs
      thread.  */
 
@@ -556,6 +567,19 @@ public final class EmacsView extends ViewGroup
     return window.onTouchEvent (motion);
   }
 
+  @Override
+  public boolean
+  onDragEvent (DragEvent drag)
+  {
+    /* Inter-program drag and drop isn't supported under Android 23
+       and earlier.  */
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N)
+      return false;
+
+    return window.onDragEvent (drag);
+  }
+
 
 
   private void
@@ -571,12 +595,12 @@ public final class EmacsView extends ViewGroup
 
 	/* The view at 0 is the surface view.  */
 	attachViewToParent (child, 1,
-			    child.getLayoutParams());
+			    child.getLayoutParams ());
       }
   }
 
-  /* The following two functions must not be called if the view has no
-     parent, or is parented to an activity.  */
+  /* The following four functions must not be called if the view has
+     no parent, or is parented to an activity.  */
 
   public void
   raise ()
@@ -605,6 +629,40 @@ public final class EmacsView extends ViewGroup
     parent.moveChildToBack (this);
   }
 
+  public void
+  moveAbove (EmacsView view)
+  {
+    EmacsView parent;
+    int index;
+
+    parent = (EmacsView) getParent ();
+
+    if (parent != view.getParent ())
+      throw new IllegalStateException ("Moving view above non-sibling");
+
+    index = parent.indexOfChild (this);
+    parent.detachViewFromParent (index);
+    index = parent.indexOfChild (view);
+    parent.attachViewToParent (this, index + 1, getLayoutParams ());
+  }
+
+  public void
+  moveBelow (EmacsView view)
+  {
+    EmacsView parent;
+    int index;
+
+    parent = (EmacsView) getParent ();
+
+    if (parent != view.getParent ())
+      throw new IllegalStateException ("Moving view above non-sibling");
+
+    index = parent.indexOfChild (this);
+    parent.detachViewFromParent (index);
+    index = parent.indexOfChild (view);
+    parent.attachViewToParent (this, index, getLayoutParams ());
+  }
+
   @Override
   protected void
   onCreateContextMenu (ContextMenu menu)
@@ -620,6 +678,13 @@ public final class EmacsView extends ViewGroup
 	     int yPosition, boolean force)
   {
     if (popupActive && !force)
+      return false;
+
+    /* Android will permanently cease to display any popup menus at
+       all if the list of menu items is empty.  Prevent this by
+       promptly returning if there are no menu items.  */
+
+    if (menu.menuItems.isEmpty ())
       return false;
 
     contextMenu = menu;

@@ -3854,7 +3854,7 @@ See `treesit-thing-settings' for more information.")
     "pair"
     "jsx")
   "Nodes that designate sexps in JavaScript.
-See `treesit-sexp-type-regexp' for more information.")
+See `treesit-thing-settings' for more information.")
 
 ;;;###autoload
 (define-derived-mode js-ts-mode js-base-mode "JavaScript"
@@ -3928,6 +3928,8 @@ See `treesit-sexp-type-regexp' for more information.")
                            '(((regex pattern: (regex_pattern) @regexp))
                              ((variable_declarator value: (jsx_element) @jsx))
                              ((assignment_expression right: (jsx_element) @jsx))
+                             ((arguments (jsx_element) @jsx))
+                             ((parenthesized_expression (jsx_element) @jsx))
                              ((return_statement (jsx_element) @jsx))))))
 
 (defun js-ts--syntax-propertize (beg end)

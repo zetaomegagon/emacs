@@ -192,7 +192,7 @@ buffer.")
                       max-key-len (max (length key) max-key-len))
                 (push (list key (cdr ent) (car ent)) keys))))
           (when keys
-            (let ((fmt (format "%%-%ds %%-%ds%s" max-key-len max-cmd-len
+            (let ((fmt (format "%%s %%-%ds%s" max-cmd-len
                                (make-string padding ?\s)))
                   (width (+ max-key-len 1 max-cmd-len padding)))
               (push `(,width
@@ -203,10 +203,12 @@ buffer.")
                         'face 'bold)
                       ,@(mapcar (lambda (ent)
                                   (format fmt
-                                          (propertize
-                                           (car ent)
-                                           'quick-help-cmd
-                                           (caddr ent))
+                                          (concat
+                                           (propertize
+                                            (car ent)
+                                            'quick-help-cmd
+                                            (caddr ent))
+                                           (make-string (- max-key-len (length (car ent))) ?\s))
                                           (cadr ent)))
                                 keys))
                     blocks)))))
@@ -1468,7 +1470,7 @@ Otherwise, return a new string."
                   ;; in case it is a local variable.
                   (with-current-buffer orig-buf
                     ;; This is for computing the SHADOWS arg for
-                    ;; describe-map-tree.
+                    ;; help--describe-map-tree.
                     (setq active-maps (current-active-maps))
                     (when (boundp name)
                       (setq this-keymap (and (keymapp (symbol-value name))
@@ -1489,9 +1491,10 @@ Otherwise, return a new string."
                     ;; If this one's not active, get nil.
                     (let ((earlier-maps
                            (cdr (memq this-keymap (reverse active-maps)))))
-                      (describe-map-tree this-keymap t (nreverse earlier-maps)
-                                         nil nil (not include-menus)
-                                         nil nil t))))))))
+                      (help--describe-map-tree this-keymap t
+                                               (nreverse earlier-maps)
+                                               nil nil (not include-menus)
+                                               nil nil t))))))))
              ;; 2. Handle quotes.
              ((and (eq (text-quoting-style) 'curve)
                    (or (and (= (following-char) ?\`)
@@ -1521,9 +1524,9 @@ quote characters to use is determined by the variable
         (t string)))
 
 (defvar help--keymaps-seen nil)
-(defun describe-map-tree (startmap &optional partial shadow prefix title
-                                   no-menu transl always-title mention-shadow
-                                   buffer)
+(defun help--describe-map-tree (startmap &optional partial shadow prefix title
+                                         no-menu transl always-title mention-shadow
+                                         buffer)
   "Insert a description of the key bindings in STARTMAP.
 This is followed by the key bindings of all maps reachable
 through STARTMAP.
@@ -1677,7 +1680,7 @@ Assume that this keymap itself is reached by the sequence of
 prefix keys PREFIX (a string or vector).
 
 TRANSL, PARTIAL, SHADOW, NOMENU, MENTION-SHADOW and BUFFER are as
-in `describe-map-tree'."
+in `help--describe-map-tree'."
   ;; Converted from describe_map in keymap.c.
   (let* ((map (keymap-canonicalize map))
          (tail map)
@@ -2452,6 +2455,7 @@ the suggested string to use instead.  See
         #'help-command-error-confusable-suggestions))
 
 (define-obsolete-function-alias 'help-for-help-internal #'help-for-help "28.1")
+(define-obsolete-function-alias 'describe-map-tree #'help--describe-map-tree "30.1")
 
 
 (provide 'help)

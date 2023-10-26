@@ -157,6 +157,7 @@ static uint32_t sfnt_table_names[] =
     [SFNT_TABLE_GVAR] = 0x67766172,
     [SFNT_TABLE_CVAR] = 0x63766172,
     [SFNT_TABLE_AVAR] = 0x61766172,
+    [SFNT_TABLE_OS_2] = 0x4f532f32,
   };
 
 /* Swap values from TrueType to system byte order.  */
@@ -201,9 +202,9 @@ sfnt_read_table_directory (int fd)
 		       range_shift, uint16_t);
   rc = read (fd, subtable, offset);
 
-  if (rc < offset)
+  if (rc == -1 || rc < offset)
     {
-      if (rc >= sizeof (uint32_t))
+      if (rc != -1 && rc >= sizeof (uint32_t))
 	{
 	  /* Detect a TTC file.  In that case, the first long will be
 	     ``ttcf''.  */
@@ -246,7 +247,7 @@ sfnt_read_table_directory (int fd)
 
   rc = read (fd, subtable->subtables, subtable_size);
 
-  if (rc < offset)
+  if (rc == -1 || rc < offset)
     {
       xfree (subtable);
       return NULL;
@@ -310,7 +311,7 @@ sfnt_read_cmap_format_0 (int fd,
 			     language));
   rc = read (fd, &format0->language, wanted_size);
 
-  if (rc < wanted_size)
+  if (rc == -1 || rc < wanted_size)
     {
       xfree (format0);
       return (struct sfnt_cmap_format_0 *) -1;
@@ -348,7 +349,7 @@ sfnt_read_cmap_format_2 (int fd,
   /* Read the part before the variable length data.  */
   min_bytes -= offsetof (struct sfnt_cmap_format_2, language);
   rc = read (fd, &format2->language, min_bytes);
-  if (rc < min_bytes)
+  if (rc == -1 || rc < min_bytes)
     {
       xfree (format2);
       return (struct sfnt_cmap_format_2 *) -1;
@@ -382,7 +383,7 @@ sfnt_read_cmap_format_2 (int fd,
 	       - SFNT_ENDOF (struct sfnt_cmap_format_2,
 			     sub_header_keys, uint16_t[256]));
   rc = read (fd, format2 + 1, min_bytes);
-  if (rc < min_bytes)
+  if (rc == -1 || rc < min_bytes)
     {
       xfree (format2);
       return (struct sfnt_cmap_format_2 *) -1;
@@ -453,7 +454,7 @@ sfnt_read_cmap_format_4 (int fd,
   /* Read the initial data.  */
   min_bytes -= offsetof (struct sfnt_cmap_format_4, language);
   rc = read (fd, &format4->language, min_bytes);
-  if (rc < min_bytes)
+  if (rc == -1 || rc < min_bytes)
     {
       xfree (format4);
       return (struct sfnt_cmap_format_4 *) -1;
@@ -489,7 +490,7 @@ sfnt_read_cmap_format_4 (int fd,
 
   /* Read the rest of the bytes to the end of format4.  */
   rc = read (fd, format4 + 1, bytes_minus_format4);
-  if (rc < bytes_minus_format4)
+  if (rc == -1 || rc < bytes_minus_format4)
     {
       xfree (format4);
       return (struct sfnt_cmap_format_4 *) -1;
@@ -558,7 +559,7 @@ sfnt_read_cmap_format_6 (int fd,
   /* Read the fixed size data.  */
   min_size -= offsetof (struct sfnt_cmap_format_6, language);
   rc = read (fd, &format6->language, min_size);
-  if (rc < min_size)
+  if (rc == -1 || rc < min_size)
     {
       xfree (format6);
       return (struct sfnt_cmap_format_6 *) -1;
@@ -582,7 +583,8 @@ sfnt_read_cmap_format_6 (int fd,
   rc = read (fd, format6 + 1,
 	     (format6->entry_count
 	      * sizeof *format6->glyph_index_array));
-  if (rc < format6->entry_count * sizeof *format6->glyph_index_array)
+  if (rc == -1 || (rc < (format6->entry_count
+			 * sizeof *format6->glyph_index_array)))
     {
       xfree (format6);
       return (struct sfnt_cmap_format_6 *) -1;
@@ -610,7 +612,7 @@ sfnt_read_cmap_format_8 (int fd,
   uint32_t length, i;
 
   /* Read the 32-bit length field.  */
-  if (read (fd, &length, sizeof (length)) < sizeof (length))
+  if (read (fd, &length, sizeof length) < (int) sizeof length)
     return (struct sfnt_cmap_format_8 *) -1;
 
   /* Swap the 32-bit length field.  */
@@ -632,7 +634,7 @@ sfnt_read_cmap_format_8 (int fd,
   /* Read the fixed length data.  */
   min_size -= offsetof (struct sfnt_cmap_format_8, language);
   rc = read (fd, &format8->language, min_size);
-  if (rc < min_size)
+  if (rc == -1 || rc < min_size)
     {
       xfree (format8);
       return (struct sfnt_cmap_format_8 *) -1;
@@ -668,7 +670,7 @@ sfnt_read_cmap_format_8 (int fd,
 
   /* Now read the variable length data.  */
   rc = read (fd, format8 + 1, temp);
-  if (rc < temp)
+  if (rc == -1 || rc < temp)
     {
       xfree (format8);
       return (struct sfnt_cmap_format_8 *) -1;
@@ -702,7 +704,7 @@ sfnt_read_cmap_format_12 (int fd,
   uint32_t length, i;
 
   /* Read the 32-bit length field.  */
-  if (read (fd, &length, sizeof (length)) < sizeof (length))
+  if (read (fd, &length, sizeof length) < (int) sizeof length)
     return (struct sfnt_cmap_format_12 *) -1;
 
   /* Swap the 32-bit length field.  */
@@ -724,7 +726,7 @@ sfnt_read_cmap_format_12 (int fd,
   /* Read the fixed length data.  */
   min_size -= offsetof (struct sfnt_cmap_format_12, language);
   rc = read (fd, &format12->language, min_size);
-  if (rc < min_size)
+  if (rc == -1 || rc < min_size)
     {
       xfree (format12);
       return (struct sfnt_cmap_format_12 *) -1;
@@ -760,7 +762,7 @@ sfnt_read_cmap_format_12 (int fd,
 
   /* Now read the variable length data.  */
   rc = read (fd, format12 + 1, temp);
-  if (rc < temp)
+  if (rc == -1 || rc < temp)
     {
       xfree (format12);
       return (struct sfnt_cmap_format_12 *) -1;
@@ -807,12 +809,12 @@ sfnt_read_cmap_format_14 (int fd,
   uint32_t buffer1[2];
   size_t size, temp;
   char buffer[3 + 4 + 4];
-  int i;
+  uint32_t i;
 
   /* Read the length field and number of variation selector
      records.  */
 
-  if (read (fd, buffer1, sizeof buffer1) < sizeof buffer1)
+  if (read (fd, buffer1, sizeof buffer1) < (int) sizeof buffer1)
     return NULL;
 
   length = buffer1[0];
@@ -846,7 +848,7 @@ sfnt_read_cmap_format_14 (int fd,
 
   for (i = 0; i < num_records; ++i)
     {
-      if (read (fd, buffer, sizeof buffer) < sizeof buffer)
+      if (read (fd, buffer, sizeof buffer) < (int) sizeof buffer)
 	{
 	  xfree (format14);
 	  return NULL;
@@ -892,7 +894,7 @@ sfnt_read_cmap_table_1 (int fd, uint32_t directory_offset,
     return (struct sfnt_cmap_encoding_subtable_data *) -1;
 
   if (read (fd, &header.format, sizeof header.format)
-      < sizeof header.format)
+      < (int) sizeof header.format)
     return (struct sfnt_cmap_encoding_subtable_data *) -1;
 
   sfnt_swap16 (&header.format);
@@ -904,7 +906,7 @@ sfnt_read_cmap_table_1 (int fd, uint32_t directory_offset,
   if (header.format != 14)
     {
       if (read (fd, &header.length, sizeof header.length)
-	  < sizeof header.length)
+	  < (int) sizeof header.length)
 	return (struct sfnt_cmap_encoding_subtable_data *) -1;
 
       sfnt_swap16 (&header.length);
@@ -983,7 +985,7 @@ sfnt_read_cmap_table (int fd, struct sfnt_offset_subtable *subtable,
   cmap = xmalloc (sizeof *cmap);
   rc = read (fd, cmap, sizeof *cmap);
 
-  if (rc < sizeof *cmap)
+  if (rc < (int) sizeof *cmap)
     {
       xfree (cmap);
       return NULL;
@@ -1010,7 +1012,7 @@ sfnt_read_cmap_table (int fd, struct sfnt_offset_subtable *subtable,
       /* Read the common part of the new subtable.  */
       rc = read (fd, &(*subtables)[i], sizeof (*subtables)[i]);
 
-      if (rc < sizeof (*subtables)[i])
+      if (rc < (int) sizeof (*subtables)[i])
 	{
 	  xfree (cmap);
 	  xfree (*subtables);
@@ -1120,8 +1122,8 @@ sfnt_lookup_glyph_2 (sfnt_char character,
 	  : 0);
 }
 
-/* Like `bsearch'.  However, return the highest element above KEY if
-   it could not be found.  */
+/* Like `bsearch', but return the element ordered exactly above KEY if
+   one exists and KEY itself cannot be located.  */
 
 static void *
 sfnt_bsearch_above (const void *key, const void *base,
@@ -1144,11 +1146,17 @@ sfnt_bsearch_above (const void *key, const void *base,
       mid = low + (high - low) / 2;
       sample = bytes + mid * size;
 
-      if (compar (key, sample) > 0)
+      if ((*compar) (key, sample) > 0)
 	low = mid + 1;
       else
 	high = mid;
     }
+
+  sample = bytes + low * size;
+
+  if (low == nmemb - 1
+      && (*compar) (key, sample) > 0)
+    return NULL;
 
   return (unsigned char *) bytes + low * size;
 }
@@ -1285,7 +1293,7 @@ sfnt_lookup_glyph_8 (sfnt_char character,
 				  sizeof format8->groups[0],
 				  sfnt_compare_char);
 
-      if (group->start_char_code > character)
+      if (!group || group->start_char_code > character)
 	/* No glyph matches this group.  */
 	return 0;
 
@@ -1334,7 +1342,7 @@ sfnt_lookup_glyph_12 (sfnt_char character,
 				  sizeof format12->groups[0],
 				  sfnt_compare_char);
 
-      if (group->start_char_code > character)
+      if (!group || group->start_char_code > character)
 	/* No glyph matches this group.  */
 	return 0;
 
@@ -1429,7 +1437,7 @@ sfnt_read_head_table (int fd, struct sfnt_offset_subtable *subtable)
   head = xmalloc (sizeof *head);
   rc = read (fd, head, sizeof *head);
 
-  if (rc < sizeof *head)
+  if (rc < (int) sizeof *head)
     {
       xfree (head);
       return NULL;
@@ -1505,7 +1513,7 @@ sfnt_read_hhea_table (int fd, struct sfnt_offset_subtable *subtable)
   hhea = xmalloc (sizeof *hhea);
   rc = read (fd, hhea, sizeof *hhea);
 
-  if (rc < sizeof *hhea)
+  if (rc < (int) sizeof *hhea)
     {
       xfree (hhea);
       return NULL;
@@ -1668,7 +1676,7 @@ sfnt_read_maxp_table (int fd, struct sfnt_offset_subtable *subtable)
   size = MIN (directory->length, sizeof *maxp);
   rc = read (fd, maxp, size);
 
-  if (rc < size)
+  if (rc == -1 || rc < size)
     {
       xfree (maxp);
       return NULL;
@@ -1748,7 +1756,7 @@ sfnt_read_glyf_table (int fd, struct sfnt_offset_subtable *subtable)
 
   /* Read the glyph data.  */
   rc = read (fd, glyf->glyphs, glyf->size);
-  if (rc < glyf->size)
+  if (rc == -1 || rc < glyf->size)
     {
       xfree (glyf);
       return NULL;
@@ -2947,16 +2955,11 @@ sfnt_decompose_compound_glyph (struct sfnt_glyph *glyph,
 	  /* When an anchor point is being used to translate the
 	     glyph, and the subglyph in question is actually a
 	     compound glyph, it is impossible to know which offset to
-	     use until the compound subglyph has actually been
-	     loaded.
+	     use until the compound subglyph has actually been loaded.
 
-	     As a result, the offset is calculated here, using the
-	     points in the loaded child compound glyph.  But first, X
-	     and Y must be reset to 0, as otherwise the translation
-	     might be applied twice if defer_offsets is not set.  */
-
-	  x = 0;
-	  y = 0;
+	     defer_offsets is set to true if these conditions apply,
+	     whereupon the offset is calculated here, using the points
+	     in the loaded child compound glyph.  */
 
 	  if (defer_offsets)
 	    {
@@ -4641,7 +4644,7 @@ sfnt_read_hmtx_table (int fd, struct sfnt_offset_subtable *subtable,
 
   /* Read into hmtx + 1.  */
   rc = read (fd, hmtx + 1, size);
-  if (rc < size)
+  if (rc == -1 || rc < size)
     {
       xfree (hmtx);
       return NULL;
@@ -4805,7 +4808,7 @@ sfnt_read_name_table (int fd, struct sfnt_offset_subtable *subtable)
 
   /* Read the fixed length data.  */
   rc = read (fd, name, required);
-  if (rc < required)
+  if (rc == -1 || rc < required)
     {
       xfree (name);
       return NULL;
@@ -4839,8 +4842,8 @@ sfnt_read_name_table (int fd, struct sfnt_offset_subtable *subtable)
   rc = read (fd, name->name_records,
 	     (name->count
 	      * sizeof *name->name_records));
-  if (rc < (name->count
-	    * sizeof *name->name_records))
+  if (rc == -1 || (rc < (name->count
+			 * sizeof *name->name_records)))
     {
       xfree (name);
       return NULL;
@@ -4896,7 +4899,7 @@ sfnt_read_name_table (int fd, struct sfnt_offset_subtable *subtable)
   name->data = (unsigned char *) (name->name_records
 				  + name->count);
   rc = read (fd, name->data, required);
-  if (rc < required)
+  if (rc == -1 || rc < required)
     {
       xfree (name);
       return NULL;
@@ -4978,7 +4981,7 @@ sfnt_read_meta_table (int fd, struct sfnt_offset_subtable *subtable)
 
   /* Read the header.  */
   rc = read (fd, meta, required);
-  if (rc < required)
+  if (rc == -1 || rc < required)
     {
       xfree (meta);
       return NULL;
@@ -5124,7 +5127,7 @@ sfnt_read_ttc_header (int fd)
   size = SFNT_ENDOF (struct sfnt_ttc_header, num_fonts,
 		     uint32_t);
   rc = read (fd, ttc, size);
-  if (rc < size)
+  if (rc == -1 || rc < size)
     {
       xfree (ttc);
       return NULL;
@@ -5156,7 +5159,7 @@ sfnt_read_ttc_header (int fd)
   ttc = xrealloc (ttc, sizeof *ttc + size);
   ttc->offset_table = (uint32_t *) (ttc + 1);
   rc = read (fd, ttc->offset_table, size);
-  if (rc < size)
+  if (rc == -1 || rc < size)
     {
       xfree (ttc);
       return NULL;
@@ -5179,7 +5182,7 @@ sfnt_read_ttc_header (int fd)
 		      uint32_t)
 	  - offsetof (struct sfnt_ttc_header, ul_dsig_tag));
   rc = read (fd, &ttc->ul_dsig_offset, size);
-  if (rc < size)
+  if (rc == -1 || rc < size)
     {
       xfree (ttc);
       return NULL;
@@ -12294,18 +12297,47 @@ sfnt_interpret_compound_glyph (struct sfnt_glyph *glyph,
 
 /* Unicode Variation Sequence (UVS) support.
 
-   Unicode defines a mechanism by which a two-codepoint sequence
-   consisting of a ``base character'' and ``variation selector'' is
-   able to produce a glyph that is a variant of the glyph that would
-   conventionally have been mapped to the ``base character''.
+   Unicode defines a mechanism by which two-codepoint sequences
+   comprising a ``base character'' and ``variation selector'' combine
+   to produce a glyph besides that which is mapped to the ``base
+   character'' itself.
 
-   TrueType describes variation selector sequences through a type of
-   character mapping table that is given the format 14.  The character
-   mapping table consists of an array of variation selectors, each of
-   which have a corresponding ``default UVS table'', which describes
-   ranges of ``base characters'' having no special variant glyphs, and
-   a ``non-default UVS table'', which is a map of ``base characters''
-   to their corresponding variant glyphs.  */
+   TrueType stores variation selector sequences inside a special type
+   of character mapping table that is given the format 14.  The
+   character mapping table consists of an array of variation
+   selectors, each of which is assigned a ``default UVS table''
+   recording ranges of ``base characters'' absent special variant
+   glyphs, and a ``non-default UVS table'', linking ``base
+   characters'' to their respective variant glyphs.
+
+   Unicode variation selectors occupy the range formed between 0xfe00
+   and 0xfe0f, along with that from 0xe0100 to 0xe01ef, within the
+   Unicode codespace.  When a variation selector is encountered as
+   text is being examined for display with a particular font, that
+   font's character mapping table is indexed by it, yielding a default
+   and non-default UVS table.  If the base character (which is
+   directly behind the variation selector) is subsequently located
+   within the default UVS table, then the glyph represented by this
+   union of base character and variation selector is that designated
+   by the base character within any UCS-4 or BMP character mapping
+   table in the font.  Since this glyph is at variance with that
+   derived from the base character only when the character set of the
+   character mapping table otherwise consulted is not UCS-4 or BMP,
+   the distinction between those two glyphs is largely notional.
+   Should the nondefault UVS table hold the base character, then the
+   glyph is conversely that enumerated in said table, whose indexing
+   is facilitated by sfnt_variation_glyph_for_char.  And if the base
+   character isn't present within either table or the tables for the
+   variation selector are absent in the first place, then the two
+   codepoints constituting the sequence are immiscible and therefore
+   the sequence cannot apply to the font.
+
+   The approach taken by Emacs character composition routines is
+   diametric to the approach illustrated above: in place of searching
+   for variation glyphs each time a variation selector character is
+   encountered, these routines ascertain which glyphs are linked to
+   each base character that they have adjudged subject to variation in
+   advance.  See sfntfont_get_variation_glyphs.  */
 
 /* Read a default UVS table from the font file FD, at the specified
    OFFSET.  Value is the default UVS table upon success, else
@@ -12316,7 +12348,7 @@ sfnt_read_default_uvs_table (int fd, off_t offset)
 {
   struct sfnt_default_uvs_table *uvs;
   uint32_t num_ranges, i, j;
-  size_t size, temp;
+  ssize_t size, temp;
   char data[512];
 
   /* First, seek to the given offset.  */
@@ -12326,7 +12358,8 @@ sfnt_read_default_uvs_table (int fd, off_t offset)
 
   /* Next, read the number of ranges present.  */
 
-  if (read (fd, &num_ranges, sizeof num_ranges) != sizeof num_ranges)
+  if (read (fd, &num_ranges, sizeof num_ranges)
+      != (int) sizeof num_ranges)
     return NULL;
 
   /* Swap the number of ranges present.  */
@@ -12386,7 +12419,7 @@ sfnt_read_nondefault_uvs_table (int fd, off_t offset)
 {
   struct sfnt_nondefault_uvs_table *uvs;
   uint32_t num_mappings, i, j;
-  size_t size, temp;
+  ssize_t size, temp;
   char data[500];
 
   /* First, seek to the given offset.  */
@@ -12684,6 +12717,26 @@ sfnt_compare_uvs_mapping (const void *k, const void *v)
   return 1;
 }
 
+/* Compare *(sfnt_char *) K to the Unicode value range V.  */
+
+static int
+sfnt_compare_unicode_value_range (const void *k, const void *v)
+{
+  const sfnt_char *key;
+  const struct sfnt_unicode_value_range *value;
+
+  key = k;
+  value = v;
+
+  if (*key < value->start_unicode_value)
+    return -1;
+  else if ((*key - value->start_unicode_value
+	    <= value->additional_count))
+    return 0;
+
+  return 1;
+}
+
 /* Return the ID of a variation glyph for the character C in the
    nondefault UVS mapping table UVS.
 
@@ -12701,6 +12754,21 @@ sfnt_variation_glyph_for_char (struct sfnt_nondefault_uvs_table *uvs,
 		     sfnt_compare_uvs_mapping);
 
   return mapping ? mapping->base_character_value : 0;
+}
+
+/* Return whether the character C is present in the default UVS
+   mapping table UVS.  */
+
+TEST_STATIC bool
+sfnt_is_character_default (struct sfnt_default_uvs_table *uvs,
+			   sfnt_char c)
+{
+  /* UVS->ranges comprises ranges of characters sorted in increasing
+     order; these ranges cannot overlap.  */
+
+  return (bsearch (&c, uvs->ranges, uvs->num_unicode_value_ranges,
+		   sizeof *uvs->ranges,
+		   sfnt_compare_unicode_value_range) != NULL);
 }
 
 
@@ -12839,9 +12907,13 @@ sfnt_read_table (int fd, struct sfnt_offset_subtable *subtable,
 
 /* Glyph variations.  Instead of defining separate fonts for each
    combination of weight, width and slant (bold, condensed, italic,
-   etc), some fonts specify a list of ``variation axes'', each of
-   which determines one delta to apply to each point in every
-   glyph.
+   etc), some fonts specify a list of ``variation axes'', which are
+   options that accept values consisting of numbers on scales
+   governing deltas applied to select points in their glyphs.
+
+   Particular styles within the font are then supplied as sets of
+   values on these scales to which their respective axes are set,
+   termed ``instances''.
 
    This optional information is specified in the `fvar' (font
    variation), `gvar' (glyph variation) and `cvar' (CVT variation)
@@ -12888,7 +12960,7 @@ sfnt_read_fvar_table (int fd, struct sfnt_offset_subtable *subtable)
   /* Read the fvar table header.  */
   buffer = NULL;
   rc = read (fd, fvar, min_bytes);
-  if (rc != min_bytes)
+  if (rc == -1 || rc != min_bytes)
     goto bail;
 
   /* Swap what was read.  */
@@ -12998,7 +13070,7 @@ sfnt_read_fvar_table (int fd, struct sfnt_offset_subtable *subtable)
     goto bail;
 
   rc = read (fd, fvar->axis, sizeof *fvar->axis * fvar->axis_count);
-  if (rc != sizeof *fvar->axis * fvar->axis_count)
+  if (rc == -1 || rc != sizeof *fvar->axis * fvar->axis_count)
     goto bail;
 
   /* Swap each axis.  */
@@ -13117,7 +13189,7 @@ sfnt_read_gvar_table (int fd, struct sfnt_offset_subtable *subtable)
 
   /* Read the gvar table header.  */
   rc = read (fd, gvar, min_bytes);
-  if (rc != min_bytes)
+  if (rc == -1 || rc != min_bytes)
     goto bail;
 
   /* Swap what was read.  */
@@ -13183,7 +13255,7 @@ sfnt_read_gvar_table (int fd, struct sfnt_offset_subtable *subtable)
     {
       gvar->u.offset_long = (uint32_t *) (gvar + 1);
       rc = read (fd, gvar->u.offset_long, off_size);
-      if (rc != off_size)
+      if (rc == -1 || rc != off_size)
 	goto bail;
 
       for (i = 0; i <= gvar->glyph_count; ++i)
@@ -13204,8 +13276,9 @@ sfnt_read_gvar_table (int fd, struct sfnt_offset_subtable *subtable)
       if (lseek (fd, offset, SEEK_SET) != offset)
 	goto bail;
 
-      if (read (fd, gvar->global_coords, coordinate_size)
-	  != coordinate_size)
+      rc = read (fd, gvar->global_coords, coordinate_size);
+
+      if (rc == -1 || rc != coordinate_size)
 	goto bail;
 
       for (i = 0; i < coordinate_size / sizeof *gvar->global_coords; ++i)
@@ -13228,8 +13301,9 @@ sfnt_read_gvar_table (int fd, struct sfnt_offset_subtable *subtable)
       if (lseek (fd, offset, SEEK_SET) != offset)
 	goto bail;
 
-      if (read (fd, gvar->glyph_variation_data,
-		gvar->data_size) != gvar->data_size)
+      rc = read (fd, gvar->glyph_variation_data, gvar->data_size);
+
+      if (rc == -1 || rc != gvar->data_size)
 	goto bail;
     }
 
@@ -13280,7 +13354,7 @@ sfnt_read_avar_table (int fd, struct sfnt_offset_subtable *subtable)
 
   /* Read the avar table header.  */
   rc = read (fd, avar, min_size);
-  if (rc != min_size)
+  if (rc == -1 || rc != min_size)
     goto bail;
 
   /* Swap what was read.  */
@@ -13297,7 +13371,7 @@ sfnt_read_avar_table (int fd, struct sfnt_offset_subtable *subtable)
   size = directory->length - min_size;
   buffer = xmalloc (size);
   rc = read (fd, buffer, size);
-  if (rc != size)
+  if (rc == -1 || rc != size)
     goto bail1;
 
   /* Swap each word.  */
@@ -13598,7 +13672,7 @@ sfnt_read_cvar_table (int fd, struct sfnt_offset_subtable *subtable,
   size = directory->length - min_size;
   buffer = xmalloc (size);
   rc = read (fd, buffer, size);
-  if (rc != size)
+  if (rc == -1 || rc != size)
     goto bail;
 
   /* Now figure out how large cvar must be by reading the tuples.  */
@@ -14042,7 +14116,7 @@ sfnt_compute_tuple_scale (struct sfnt_blend *blend, bool intermediate_p,
       if (intermediate_p)
 	{
 	  start = intermediate_start[i] * 4;
-	  end = intermediate_start[i] * 4;
+	  end = intermediate_end[i] * 4;
 	}
 
       /* Ignore tuples that can be skipped.  */
@@ -14595,7 +14669,7 @@ sfnt_vary_simple_glyph (struct sfnt_blend *blend, sfnt_glyph id,
     coords = alloca (gvar->axis_count * sizeof *coords * 3);
 
   intermediate_start = coords + gvar->axis_count;
-  intermediate_end = coords + gvar->axis_count;
+  intermediate_end = intermediate_start + gvar->axis_count;
 
   /* Allocate arrays of booleans and fwords to keep track of which
      points have been touched.  */
@@ -14967,7 +15041,7 @@ sfnt_vary_compound_glyph (struct sfnt_blend *blend, sfnt_glyph id,
     coords = alloca (gvar->axis_count * sizeof *coords * 3);
 
   intermediate_start = coords + gvar->axis_count;
-  intermediate_end = coords + gvar->axis_count;
+  intermediate_end = intermediate_start + gvar->axis_count;
 
   while (ntuples--)
     {
@@ -15292,6 +15366,110 @@ sfnt_vary_interpreter (struct sfnt_interpreter *interpreter,
 
   interpreter->n_axis = blend->fvar->axis_count;
   interpreter->norm_coords = blend->norm_coords;
+}
+
+
+
+/* OS/2 metadata retrieval.
+
+   A font's `OS/2' table incorporates some miscellaneous information
+   that is consulted by the font scaler on MS-Windows.  Emacs requires
+   one fragment of this information: the font foundry name.  */
+
+/* Read an OS/2 table from the given font FD.  Use the table directory
+   provided in SUBTABLE.
+
+   Return the OS/2 table if successful, NULL otherwise.  */
+
+TEST_STATIC struct sfnt_OS_2_table *
+sfnt_read_OS_2_table (int fd, struct sfnt_offset_subtable *subtable)
+{
+  struct sfnt_OS_2_table *OS_2;
+  struct sfnt_table_directory *directory;
+  ssize_t rc;
+  size_t minimum, wanted;
+
+  /* Search for the OS/2 table within SUBTABLE.  */
+
+  directory = sfnt_find_table (subtable, SFNT_TABLE_OS_2);
+
+  if (!directory)
+    return NULL;
+
+  /* Calculate how large the table must be.  The field `panose' is the
+     last field aligned to natural boundaries, and thus contents must
+     be read twice: once to populate the table with information up to
+     `panose', and once again to retrieve the information
+     afterwards.  */
+
+  minimum = (SFNT_ENDOF (struct sfnt_OS_2_table, panose,
+			 unsigned char[10])
+	     + SFNT_ENDOF (struct sfnt_OS_2_table, fs_last_char_index,
+			   uint16_t)
+	     - offsetof (struct sfnt_OS_2_table, ul_unicode_range));
+
+  /* If the table is too short, return.  */
+  if (directory->length < minimum)
+    return NULL;
+
+  /* Seek to the location given in the directory.  */
+  if (lseek (fd, directory->offset, SEEK_SET) == (off_t) -1)
+    return NULL;
+
+  OS_2 = xmalloc (sizeof *OS_2);
+
+  /* Read data up to the end of `panose'.  */
+
+  wanted = SFNT_ENDOF (struct sfnt_OS_2_table, panose,
+		       unsigned char[10]);
+  rc = read (fd, OS_2, wanted);
+
+  if (rc == -1 || rc != wanted)
+    {
+      xfree (OS_2);
+      return NULL;
+    }
+
+  /* Byte swap that data.  */
+
+  sfnt_swap16 (&OS_2->version);
+  sfnt_swap16 (&OS_2->x_avg_char_width);
+  sfnt_swap16 (&OS_2->us_weight_class);
+  sfnt_swap16 (&OS_2->us_width_class);
+  sfnt_swap16 (&OS_2->fs_type);
+  sfnt_swap16 (&OS_2->y_subscript_x_size);
+  sfnt_swap16 (&OS_2->y_subscript_y_size);
+  sfnt_swap16 (&OS_2->y_subscript_x_offset);
+  sfnt_swap16 (&OS_2->y_subscript_y_offset);
+  sfnt_swap16 (&OS_2->y_superscript_x_size);
+  sfnt_swap16 (&OS_2->y_superscript_y_size);
+  sfnt_swap16 (&OS_2->y_superscript_x_offset);
+  sfnt_swap16 (&OS_2->y_superscript_y_offset);
+  sfnt_swap16 (&OS_2->y_strikeout_size);
+  sfnt_swap16 (&OS_2->y_strikeout_position);
+  sfnt_swap16 (&OS_2->s_family_class);
+
+  /* Read fields between ul_unicode_range and fs_last_char_index.  */
+  wanted = (SFNT_ENDOF (struct sfnt_OS_2_table, fs_last_char_index,
+			uint16_t)
+	    - offsetof (struct sfnt_OS_2_table, ul_unicode_range));
+  rc = read (fd, &OS_2->ul_unicode_range, wanted);
+
+  if (rc == -1 || rc != wanted)
+    {
+      xfree (OS_2);
+      return NULL;
+    }
+
+  /* Swap the remainder and return the table.  */
+  sfnt_swap32 (&OS_2->ul_unicode_range[0]);
+  sfnt_swap32 (&OS_2->ul_unicode_range[1]);
+  sfnt_swap32 (&OS_2->ul_unicode_range[2]);
+  sfnt_swap32 (&OS_2->ul_unicode_range[3]);
+  sfnt_swap16 (&OS_2->fs_selection);
+  sfnt_swap16 (&OS_2->fs_first_char_index);
+  sfnt_swap16 (&OS_2->fs_last_char_index);
+  return OS_2;
 }
 
 
@@ -19048,10 +19226,11 @@ static void
 sfnt_test_uvs (int fd, struct sfnt_cmap_format_14 *format14)
 {
   struct sfnt_uvs_context *context;
-  size_t i, j;
+  size_t i, j, k;
   sfnt_glyph glyph;
   sfnt_char c;
   struct sfnt_nondefault_uvs_table *uvs;
+  struct sfnt_default_uvs_table *default_uvs;
 
   context = sfnt_create_uvs_context (format14, fd);
 
@@ -19066,6 +19245,27 @@ sfnt_test_uvs (int fd, struct sfnt_cmap_format_14 *format14)
 
       for (i = 0; i < context->num_records; ++i)
 	{
+	  if (context->records[i].default_uvs)
+	    {
+	      default_uvs = context->records[i].default_uvs;
+
+	      for (j = 0; j < default_uvs->num_unicode_value_ranges; ++j)
+		{
+		  fprintf (stderr, "   Default UVS: %u, %u\n",
+			   default_uvs->ranges[j].start_unicode_value,
+			   default_uvs->ranges[j].additional_count);
+
+		  c = default_uvs->ranges[j].start_unicode_value;
+		  k = 0;
+
+		  for (; k <= default_uvs->ranges[j].additional_count; ++k)
+		    {
+		      if (!sfnt_is_character_default (default_uvs, c + k))
+			abort ();
+		    }
+		}
+	    }
+
 	  if (!context->records[i].nondefault_uvs)
 	    continue;
 
@@ -19158,6 +19358,7 @@ main (int argc, char **argv)
   struct sfnt_gvar_table *gvar;
   struct sfnt_avar_table *avar;
   struct sfnt_cvar_table *cvar;
+  struct sfnt_OS_2_table *OS_2;
   sfnt_fixed scale;
   char *fancy;
   int *advances;
@@ -19293,6 +19494,7 @@ main (int argc, char **argv)
   fvar = sfnt_read_fvar_table (fd, font);
   gvar = sfnt_read_gvar_table (fd, font);
   avar = sfnt_read_avar_table (fd, font);
+  OS_2 = sfnt_read_OS_2_table (fd, font);
   cvar = NULL;
   hmtx = NULL;
 
@@ -19308,6 +19510,10 @@ main (int argc, char **argv)
 
   loca_long = NULL;
   loca_short = NULL;
+
+  if (OS_2)
+    fprintf (stderr, "OS/2 table found!\nach_vendor_id: %.4s\n",
+	     OS_2->ach_vendor_id);
 
   if (fvar)
     {
@@ -19971,6 +20177,7 @@ main (int argc, char **argv)
   xfree (gvar);
   xfree (avar);
   xfree (cvar);
+  xfree (OS_2);
 
   return 0;
 }

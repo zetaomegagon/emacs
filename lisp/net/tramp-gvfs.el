@@ -980,8 +980,8 @@ or `dbus-call-method-asynchronously'."
   (vec bus service path interface)
   "Return all properties of INTERFACE.
 The call will be traced by Tramp with trace level 6."
-     ;; Check, that interface exists at object path.  Retrieve properties.
   (declare (indent 1) (debug t))
+  ;; Check, that interface exists at object path.  Retrieve properties.
   `(when (member
 	  ,interface
 	  (tramp-dbus-function
@@ -1208,6 +1208,9 @@ file names."
       (tramp-run-real-handler #'expand-file-name (list name))
     ;; Dissect NAME.
     (with-parsed-tramp-file-name name nil
+      ;; Tilde expansion shall be possible also for quoted localname.
+      (when (string-prefix-p "~" (file-name-unquote localname))
+	(setq localname (file-name-unquote localname)))
       ;; If there is a default location, expand tilde.
       (when (string-match
 	     (rx bos "~" (group (* (not "/"))) (group (* nonl)) eos) localname)
@@ -1490,10 +1493,10 @@ If FILE-SYSTEM is non-nil, return file system attributes."
 	    (cond
 	     ((and (memq 'change flags) (memq 'attribute-change flags))
 	      '(created changed changes-done-hint moved deleted
-			attribute-changed))
+			attribute-changed unmounted))
 	     ((memq 'change flags)
-	      '(created changed changes-done-hint moved deleted))
-	     ((memq 'attribute-change flags) '(attribute-changed))))
+	      '(created changed changes-done-hint moved deleted unmounted))
+	     ((memq 'attribute-change flags) '(attribute-changed unmounted))))
 	   (p (apply
 	       #'start-process
 	       "gvfs-monitor" (generate-new-buffer " *gvfs-monitor*")

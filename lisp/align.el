@@ -577,7 +577,18 @@ The possible settings for `align-region-separate' are:
                     "="
                     (group (zero-or-more (syntax whitespace)))))
      (group . (1 2))
-     (modes . '(conf-toml-mode toml-ts-mode))))
+     (modes . '(conf-toml-mode toml-ts-mode lua-mode lua-ts-mode)))
+
+    (double-dash-comment
+     (regexp . ,(rx (group (zero-or-more (syntax whitespace)))
+                    "--"
+                    (zero-or-more nonl)))
+     (modes  . '(lua-mode lua-ts-mode))
+     (column . comment-column)
+     (valid  . ,(lambda ()
+                  (save-excursion
+                    (goto-char (match-beginning 1))
+                    (not (bolp)))))))
   "A list describing all of the available alignment rules.
 The format is:
 
@@ -1337,12 +1348,18 @@ aligner would have dealt with are."
 		 (thissep (if rulesep (cdr rulesep) separate))
 		 same (eol 0)
 		 search-start
-		 groups ;; group-c
-		 spacing spacing-c
-		 tab-stop tab-stop-c
-		 repeat repeat-c
-		 valid valid-c
-		 first
+                 (groups (ensure-list (or (cdr (assq 'group rule)) 1)))
+                 (spacing (cdr (assq 'spacing rule)))
+                 (tab-stop (let ((rule-ts (assq 'tab-stop rule)))
+                              (cond (rule-ts
+                                     (cdr rule-ts))
+                                    ((symbolp align-to-tab-stop)
+                                     (symbol-value align-to-tab-stop))
+                                    (t
+                                     align-to-tab-stop))))
+                 (repeat (cdr (assq 'repeat rule)))
+                 (valid (assq 'valid rule))
+                 (first (car groups))
 		 regions index
 		 last-point
 		 save-match-data
@@ -1459,43 +1476,11 @@ aligner would have dealt with are."
                     (if (and (bolp) (> (point) search-start))
                         (forward-char -1))
 
-                    ;; lookup the `group' attribute the first time
-                    ;; that we need it
-                    (unless nil ;; group-c
-                      (setq groups (or (cdr (assq 'group rule)) 1))
-                      (setq groups (ensure-list groups))
-                      (setq first (car groups)))
-
-                    (unless spacing-c
-                      (setq spacing (cdr (assq 'spacing rule))
-                            spacing-c t))
-
-                    (unless tab-stop-c
-                      (setq tab-stop
-                            (let ((rule-ts (assq 'tab-stop rule)))
-                              (cond (rule-ts
-                                     (cdr rule-ts))
-                                    ((symbolp align-to-tab-stop)
-                                     (symbol-value align-to-tab-stop))
-                                    (t
-                                     align-to-tab-stop)))
-                            tab-stop-c t))
-
                     ;; test whether we have found a match on the same
                     ;; line as a previous match
                     (when (> (point) eol)
                       (setq same nil)
                       (align--set-marker eol (line-end-position)))
-
-                    ;; lookup the `repeat' attribute the first time
-                    (or repeat-c
-                        (setq repeat (cdr (assq 'repeat rule))
-                              repeat-c t))
-
-                    ;; lookup the `valid' attribute the first time
-                    (or valid-c
-                        (setq valid (assq 'valid rule)
-                              valid-c t))
 
                     ;; remember the beginning position of this rule
                     ;; match, and save the match-data, since either

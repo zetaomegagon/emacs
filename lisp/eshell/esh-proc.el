@@ -23,6 +23,7 @@
 
 ;;; Code:
 
+(require 'esh-arg)
 (require 'esh-io)
 (require 'esh-util)
 
@@ -40,13 +41,22 @@ finish."
   :version "24.1"			; removed eshell-proc-initialize
   :type 'hook)
 
+(defcustom eshell-process-wait-time 0.05
+  "The number of seconds to delay waiting for a synchronous process."
+  :version "30.1"
+  :type 'number)
+
 (defcustom eshell-process-wait-seconds 0
   "The number of seconds to delay waiting for a synchronous process."
   :type 'integer)
+(make-obsolete-variable 'eshell-process-wait-seconds
+                        'eshell-process-wait-time "30.1")
 
 (defcustom eshell-process-wait-milliseconds 50
   "The number of milliseconds to delay waiting for a synchronous process."
   :type 'integer)
+(make-obsolete-variable 'eshell-process-wait-milliseconds
+                        'eshell-process-wait-time "30.1")
 
 (defcustom eshell-done-messages-in-minibuffer t
   "If non-nil, subjob \"Done\" messages will display in minibuffer."
@@ -100,6 +110,8 @@ information, for example."
 (defvar eshell-supports-asynchronous-processes (fboundp 'make-process)
   "Non-nil if Eshell can create asynchronous processes.")
 
+(defvar eshell-subjob-messages t
+  "Non-nil if we should print process start/end messages for subjobs.")
 (defvar eshell-current-subjob-p nil)
 
 (defvar eshell-process-list nil
@@ -111,7 +123,9 @@ subjob.
 To add or remove elements of this list, see
 `eshell-record-process-object' and `eshell-remove-process-entry'.")
 
+(declare-function eshell-reset "esh-mode" (&optional no-hooks))
 (declare-function eshell-send-eof-to-process "esh-mode")
+(declare-function eshell-interactive-filter "esh-mode" (buffer string))
 (declare-function eshell-tail-process "esh-cmd")
 
 (defvar-keymap eshell-proc-mode-map
@@ -128,6 +142,7 @@ To add or remove elements of this list, see
   "Function run when killing a process.
 Runs `eshell-reset-after-proc' and `eshell-kill-hook', passing arguments
 PROC and STATUS to functions on the latter."
+  (declare (obsolete nil "30.1"))
   ;; Was there till 24.1, but it is not optional.
   (remove-hook 'eshell-kill-hook #'eshell-reset-after-proc)
   ;; Only reset the prompt if this process is running interactively.
@@ -144,27 +159,37 @@ PROC and STATUS to functions on the latter."
 (defun eshell-proc-initialize ()    ;Called from `eshell-mode' via intern-soft!
   "Initialize the process handling code."
   (make-local-variable 'eshell-process-list)
+  (setq-local eshell-special-ref-alist
+              (cons
+               `("process"
+                 (creation-function   get-process)
+                 (insertion-function  eshell-insert-process)
+                 (completion-function eshell-complete-process-ref))
+               eshell-special-ref-alist))
+
   (eshell-proc-mode))
 
-(defun eshell-reset-after-proc (status)
-  "Reset the command input location after a process terminates.
-The signals which will cause this to happen are matched by
-`eshell-reset-signals'."
-  (when (and (stringp status)
-	     (string-match eshell-reset-signals status))
-    (require 'esh-mode)
-    (declare-function eshell-reset "esh-mode" (&optional no-hooks))
-    (eshell-reset)))
+(define-obsolete-function-alias 'eshell-reset-after-proc
+  'eshell--reset-after-signal "30.1")
+
+(defun eshell-process-active-p (process)
+  "Return non-nil if PROCESS is active.
+This is like `process-live-p', but additionally checks whether
+`eshell-sentinel' has finished all of its work yet."
+  (or (process-live-p process)
+      ;; If we have handles, this is an Eshell-managed
+      ;; process.  Wait until we're 100% done and have
+      ;; cleared out the handles (see `eshell-sentinel').
+      (process-get process :eshell-handles)))
 
 (defun eshell-wait-for-process (&rest procs)
   "Wait until PROCS have successfully completed."
   (dolist (proc procs)
     (when (eshell-processp proc)
-      (while (process-live-p proc)
+      (while (eshell-process-active-p proc)
         (when (input-pending-p)
           (discard-input))
-        (sit-for eshell-process-wait-seconds
-                 eshell-process-wait-milliseconds)))))
+        (sit-for eshell-process-wait-time)))))
 
 (defalias 'eshell/wait #'eshell-wait-for-process)
 
@@ -211,27 +236,11 @@ and signal names."
 
 (put 'eshell/kill 'eshell-no-numeric-conversions t)
 
-(defun eshell-read-process-name (prompt)
-  "Read the name of a process from the minibuffer, using completion.
-The prompt will be set to PROMPT."
-  (completing-read prompt
-		   (mapcar
-                    (lambda (proc)
-                      (cons (process-name proc) t))
-		    (process-list))
-                   nil t))
-
-(defun eshell-insert-process (process)
-  "Insert the name of PROCESS into the current buffer at point."
-  (interactive
-   (list (get-process
-	  (eshell-read-process-name "Name of process: "))))
-  (insert-and-inherit "#<process " (process-name process) ">"))
-
 (defsubst eshell-record-process-object (object)
   "Record OBJECT as now running."
-  (when (and (eshell-processp object)
-	     eshell-current-subjob-p)
+  (when (and eshell-subjob-messages
+             eshell-current-subjob-p
+             (eshell-processp object))
     (require 'esh-mode)
     (declare-function eshell-interactive-print "esh-mode" (string))
     (eshell-interactive-print
@@ -240,11 +249,12 @@ The prompt will be set to PROMPT."
 
 (defun eshell-remove-process-entry (entry)
   "Record the process ENTRY as fully completed."
-  (if (and (eshell-processp (car entry))
-	   (cdr entry)
-	   eshell-done-messages-in-minibuffer)
-      (message "[%s]+ Done %s" (process-name (car entry))
-	       (process-command (car entry))))
+  (when (and eshell-subjob-messages
+             eshell-done-messages-in-minibuffer
+             (eshell-processp (car entry))
+             (cdr entry))
+    (message "[%s]+ Done %s" (process-name (car entry))
+             (process-command (car entry))))
   (setq eshell-process-list
 	(delq entry eshell-process-list)))
 
@@ -346,10 +356,19 @@ Used only on systems which do not support async subprocesses.")
                :connection-type conn-type
                :stderr stderr-proc
                :file-handler t)))
-      (eshell-debug-command
-       'process (format-message "started external process `%s'" proc))
+      (eshell-debug-command 'process
+        "started external process `%s'\n\n%s" proc
+        (mapconcat (lambda (i) (shell-quote-argument i 'posix))
+                   (process-command proc) " "))
       (eshell-record-process-object proc)
       (eshell-record-process-properties proc)
+      (when stderr-proc
+        ;; Provide a shared flag between the primary and stderr
+        ;; processes.  This lets the primary process wait to clean up
+        ;; until stderr is totally finished (see `eshell-sentinel').
+        (let ((stderr-live (list t)))
+          (process-put proc :eshell-stderr-live stderr-live)
+          (process-put stderr-proc :eshell-stderr-live stderr-live)))
       (run-hook-with-args 'eshell-exec-hook proc)
       (when (fboundp 'process-coding-system)
 	(let ((coding-systems (process-coding-system proc)))
@@ -414,7 +433,7 @@ Used only on systems which do not support async subprocesses.")
 	(eshell-close-handles
          (if (numberp exit-status) exit-status -1)
          (list 'quote (and (numberp exit-status) (= exit-status 0))))
-	(eshell-kill-process-function command exit-status)
+	(run-hook-with-args 'eshell-kill-hook command exit-status)
 	(or (bound-and-true-p eshell-in-pipeline-p)
 	    (setq eshell-last-sync-output-start nil))
 	(if (not (numberp exit-status))
@@ -426,12 +445,9 @@ Used only on systems which do not support async subprocesses.")
   "Send the output from PROCESS (STRING) to the interactive display.
 This is done after all necessary filtering has been done."
   (when string
-    (eshell-debug-command
-     'process (format-message "received output from process `%s'\n\n%s"
-                              process string))
+    (eshell-debug-command 'process
+      "received output from process `%s'\n\n%s" process string)
     (eshell--mark-as-output 0 (length string) string)
-    (require 'esh-mode)
-    (declare-function eshell-interactive-filter "esh-mode" (buffer string))
     (eshell-interactive-filter (if process (process-buffer process)
                                  (current-buffer))
                                string)))
@@ -443,22 +459,23 @@ This is done after all necessary filtering has been done."
   "Insert a string into the eshell buffer, or a process/file/buffer.
 PROC is the process for which we're inserting output.  STRING is the
 output."
+  (eshell-debug-command 'process
+    "received output from process `%s'\n\n%s" proc string)
   (when (buffer-live-p (process-buffer proc))
     (with-current-buffer (process-buffer proc)
       (process-put proc :eshell-pending
                    (concat (process-get proc :eshell-pending)
                            string))
-      (unless (process-get proc :eshell-busy) ; Already being handled?
-        (while (process-get proc :eshell-pending)
-          (let ((handles (process-get proc :eshell-handles))
-                (index (process-get proc :eshell-handle-index))
-                (data (process-get proc :eshell-pending)))
-            (process-put proc :eshell-pending nil)
-            (process-put proc :eshell-busy t)
-            (eshell-debug-command
-             'process (format-message "received output from process `%s'\n\n%s"
-                                      proc string))
-            (unwind-protect
+      (if (process-get proc :eshell-busy)
+          (eshell-debug-command 'process "i/o busy for process `%s'" proc)
+        (unwind-protect
+            (let ((handles (process-get proc :eshell-handles))
+                  (index (process-get proc :eshell-handle-index))
+                  data)
+              (while (setq data (process-get proc :eshell-pending))
+                (process-put proc :eshell-pending nil)
+                (eshell-debug-command 'process
+                  "forwarding output from process `%s'\n\n%s" proc data)
                 (condition-case nil
                     (eshell-output-object data index handles)
                   ;; FIXME: We want to send SIGPIPE to the process
@@ -476,53 +493,65 @@ output."
                    (if (or (process-get proc 'remote-pid)
                            (eq system-type 'windows-nt))
                        (delete-process proc)
-                     (signal-process proc 'SIGPIPE))))
-              (process-put proc :eshell-busy nil))))))))
+                     (signal-process proc 'SIGPIPE))))))
+                (process-put proc :eshell-busy nil))))))
 
 (defun eshell-sentinel (proc string)
   "Generic sentinel for command processes.  Reports only signals.
 PROC is the process that's exiting.  STRING is the exit message."
-  (eshell-debug-command
-   'process (format-message "sentinel for external process `%s': %S"
-                            proc string))
-  (when (buffer-live-p (process-buffer proc))
+  (eshell-debug-command 'process
+    "sentinel for external process `%s': %S" proc string)
+  (when (and (buffer-live-p (process-buffer proc))
+             (not (string= string "run")))
     (with-current-buffer (process-buffer proc)
       (unwind-protect
-          (unless (string= string "run")
-            ;; Write the exit message if the status is abnormal and
-            ;; the process is already writing to the terminal.
+          (let* ((handles (process-get proc :eshell-handles))
+                 (index (process-get proc :eshell-handle-index))
+                 (primary (= index eshell-output-handle))
+                 (data (process-get proc :eshell-pending))
+                 ;; Only get the status for the primary subprocess,
+                 ;; not the pipe process (if any).
+                 (status (when primary (process-exit-status proc)))
+                 (stderr-live (process-get proc :eshell-stderr-live)))
+            ;; Write the exit message for the last process in the
+            ;; foreground pipeline if its status is abnormal and
+            ;; stderr is already writing to the terminal.
             (when (and (eq proc (eshell-tail-process))
+                       (eshell-interactive-output-p eshell-error-handle handles)
                        (not (string-match "^\\(finished\\|exited\\)"
                                           string)))
-              (funcall (process-filter proc) proc string))
-            (let* ((handles (process-get proc :eshell-handles))
-                   (index (process-get proc :eshell-handle-index))
-                   (data (process-get proc :eshell-pending))
-                   ;; Only get the status for the primary subprocess,
-                   ;; not the pipe process (if any).
-                   (status (when (= index eshell-output-handle)
-                            (process-exit-status proc))))
-              (process-put proc :eshell-pending nil)
-              ;; If we're in the middle of handling output from this
-              ;; process then schedule the EOF for later.
-              (letrec ((finish-io
-                        (lambda ()
-                          (if (process-get proc :eshell-busy)
-                              (run-at-time 0 nil finish-io)
-                            (when data
-                              (ignore-error eshell-pipe-broken
-                                (eshell-output-object
-                                 data index handles)))
-                            (eshell-close-handles
-                             status
-                             (when status (list 'quote (= status 0)))
-                             handles)
-                            (eshell-kill-process-function proc string)
-                            (eshell-debug-command
-                             'process
-                             (format-message
-                              "finished external process `%s'" proc))))))
-                (funcall finish-io))))
+              (eshell--mark-as-output 0 (length string) string)
+              (eshell-interactive-filter (process-buffer proc) string))
+            (process-put proc :eshell-pending nil)
+            ;; If we're in the middle of handling output from this
+            ;; process then schedule the EOF for later.
+            (letrec ((wait-for-stderr (and primary
+                                           (not (process-live-p proc))))
+                     (finish-io
+                      (lambda ()
+                        (if (or (process-get proc :eshell-busy)
+                                (and wait-for-stderr (car stderr-live)))
+                            (progn
+                              (eshell-debug-command 'process
+                                "i/o busy for process `%s'" proc)
+                              (run-at-time 0 nil finish-io))
+                          (when data
+                            (ignore-error eshell-pipe-broken
+                              (eshell-output-object
+                               data index handles)))
+                          (eshell-close-handles
+                           status
+                           (when status (list 'quote (= status 0)))
+                           handles)
+                          ;; Clear the handles to mark that we're 100%
+                          ;; finished with the I/O for this process.
+                          (process-put proc :eshell-handles nil)
+                          (eshell-debug-command 'process
+                            "finished external process `%s'" proc)
+                          (if primary
+                              (run-hook-with-args 'eshell-kill-hook proc string)
+                            (setcar stderr-live nil))))))
+              (funcall finish-io)))
         (when-let ((entry (assq proc eshell-process-list)))
           (eshell-remove-process-entry entry))))))
 
@@ -550,7 +579,7 @@ If QUERY is non-nil, query the user with QUERY before calling FUNC."
 
 (defcustom eshell-kill-process-wait-time 5
   "Seconds to wait between sending termination signals to a subprocess."
-  :type 'integer)
+  :type 'number)
 
 (defcustom eshell-kill-process-signals '(SIGINT SIGQUIT SIGKILL)
   "Signals used to kill processes when an Eshell buffer exits.
@@ -613,29 +642,41 @@ See the variable `eshell-kill-processes-on-exit'."
 	    (kill-buffer buf)))
       (message nil))))
 
+(defun eshell--reset-after-signal (status)
+  "Reset the prompt after a signal when necessary.
+STATUS is the status associated with the signal; if
+`eshell-reset-signals' matches status, reset the prompt.
+
+This is really only useful when \"signaling\" while there's no
+foreground process.  Otherwise, `eshell-resume-command' handles
+everything."
+  (when (and (stringp status)
+	     (string-match eshell-reset-signals status))
+    (eshell-reset)))
+
 (defun eshell-interrupt-process ()
   "Interrupt a process."
   (interactive)
   (unless (eshell-process-interact 'interrupt-process)
-    (eshell-kill-process-function nil "interrupt")))
+    (eshell--reset-after-signal "interrupt\n")))
 
 (defun eshell-kill-process ()
   "Kill a process."
   (interactive)
   (unless (eshell-process-interact 'kill-process)
-    (eshell-kill-process-function nil "killed")))
+    (eshell--reset-after-signal "killed\n")))
 
 (defun eshell-quit-process ()
   "Send quit signal to process."
   (interactive)
   (unless (eshell-process-interact 'quit-process)
-    (eshell-kill-process-function nil "quit")))
+    (eshell--reset-after-signal "quit\n")))
 
 ;(defun eshell-stop-process ()
 ;  "Send STOP signal to process."
 ;  (interactive)
 ;  (unless (eshell-process-interact 'stop-process)
-;    (eshell-kill-process-function nil "stopped")))
+;    (eshell--reset-after-signal "stopped\n")))
 
 ;(defun eshell-continue-process ()
 ;  "Send CONTINUE signal to process."
@@ -644,7 +685,32 @@ See the variable `eshell-kill-processes-on-exit'."
 ;    ;; jww (1999-09-17): this signal is not dealt with yet.  For
 ;    ;; example, `eshell-reset' will be called, and so will
 ;    ;; `eshell-resume-eval'.
-;    (eshell-kill-process-function nil "continue")))
+;    (eshell--reset-after-signal "continue\n")))
+
+;;; Special references
+
+(defun eshell-read-process-name (prompt)
+  "Read the name of a process from the minibuffer, using completion.
+The prompt will be set to PROMPT."
+  (completing-read prompt
+		   (mapcar
+                    (lambda (proc)
+                      (cons (process-name proc) t))
+		    (process-list))
+                   nil t))
+
+(defun eshell-insert-process (process)
+  "Insert the name of PROCESS into the current buffer at point."
+  (interactive
+   (list (get-process
+	  (eshell-read-process-name "Name of process: "))))
+  (insert-and-inherit "#<process "
+                      (eshell-quote-argument (process-name process))
+                      ">"))
+
+(defun eshell-complete-process-ref ()
+  "Perform completion for process references."
+  (pcomplete-here (mapcar #'process-name (process-list))))
 
 (provide 'esh-proc)
 ;;; esh-proc.el ends here

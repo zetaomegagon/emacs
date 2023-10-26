@@ -2366,7 +2366,7 @@ connection information}.  If you want, for example, use
 @end group
 @end lisp
 
-This works only for connection methods which allow to override the
+This works only for connection methods which allow overriding the
 remote login shell, like @option{sshx} or @option{plink}.  See
 @ref{Inline methods} and @ref{External methods} for connection methods
 which support this.
@@ -2436,8 +2436,10 @@ which may not be the same as the local login shell prompt,
 @value{tramp} sets a similar default value for both prompts.
 
 @item @code{tramp-password-prompt-regexp}
+@item @code{tramp-otp-password-prompt-regexp}
 @item @code{tramp-wrong-passwd-regexp}
 @vindex tramp-password-prompt-regexp
+@vindex tramp-otp-password-prompt-regexp
 @vindex tramp-wrong-passwd-regexp
 
 @value{tramp} uses @code{tramp-password-prompt-regexp} to
@@ -2470,6 +2472,10 @@ This user option is, by default, initialized from
 @code{password-word-equivalents} when @value{tramp} is loaded, and it
 is usually more convenient to add new passphrases to that user option
 instead of altering this user option.
+
+The user option @code{tramp-otp-password-prompt-regexp} has a similar
+purpose, but for one-time passwords.  Those passwords are not cached
+by @value{tramp} for reuse.
 
 Similar localization may be necessary for handling wrong password
 prompts, for which @value{tramp} uses @code{tramp-wrong-passwd-regexp}.
@@ -3715,6 +3721,36 @@ containers on the remote host.
  `(,tramp-docker-method ,tramp-podman-method))
 @end lisp
 @end defopt
+
+A common use case for ad-hoc specifications is to visit a file or a
+directory with proper permissions, for example with the @option{sudo}
+method.  The command @code{tramp-revert-buffer-with-sudo} supports
+this.
+
+@deffn Command tramp-revert-buffer-with-sudo
+This command shows the current buffer with @option{sudo} permissions.
+The buffer must either visit a file, or a directory
+(@code{dired-mode}).
+@end deffn
+
+@defopt tramp-file-name-with-method
+The method @code{tramp-revert-buffer-with-sudo} shows an alternate
+buffer.  It defaults to @code{sudo}, other valid methods are
+@code{su}, @code{doas}, and @code{ksu}.
+
+@lisp
+(customize-set-variable 'tramp-file-name-with-method "doas")
+@end lisp
+@end defopt
+
+These methods apply the user @samp{root} as default.  If another user
+shall be taken, add a proper rule to the user option
+@code{tramp-default-user-alist} (@pxref{Default User}):
+
+@lisp
+(add-to-list 'tramp-default-user-alist '("sudo" "remotehost" "admin"))
+@end lisp
+
 
 @node Home directories
 @section Expanding @file{~} to home directory
@@ -6053,20 +6089,23 @@ wrapping the timer function body as follows:
 to 10.  @value{tramp} does not display all messages; only those with a
 verbosity level less than or equal to @code{tramp-verbose}.
 
+@noindent
 The verbosity levels are
 
-          @w{ 0}  silent (no @value{tramp} messages at all)
-@*@indent @w{ 1}  errors
-@*@indent @w{ 2}  warnings
-@*@indent @w{ 3}  connection to remote hosts (default verbosity)
-@*@indent @w{ 4}  activities
-@*@indent @w{ 5}  internal
-@*@indent @w{ 6}  sent and received strings
-@*@indent @w{ 7}  connection properties
-@*@indent @w{ 8}  file caching
-@*@indent @w{ 9}  test commands
-@*@indent @w{10}  traces (huge)
-@*@indent @w{11}  call traces (maintainer only)
+@indentedblock
+   @w{ 0}  silent (no @value{tramp} messages at all)
+@* @w{ 1}  errors
+@* @w{ 2}  warnings
+@* @w{ 3}  connection to remote hosts (default verbosity)
+@* @w{ 4}  activities
+@* @w{ 5}  internal
+@* @w{ 6}  sent and received strings
+@* @w{ 7}  connection properties
+@* @w{ 8}  file caching
+@* @w{ 9}  test commands
+@* @w{10}  traces (huge)
+@* @w{11}  call traces (maintainer only)
+@end indentedblock
 
 With @code{tramp-verbose} greater than or equal to 4, messages are
 also written to the @value{tramp} debug buffer @file{*debug

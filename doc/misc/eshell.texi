@@ -400,6 +400,14 @@ Return the buffer named @var{name}.  This is equivalent to
 @samp{$(get-buffer-create "@var{name}")} (@pxref{Creating Buffers, , ,
 elisp, The Emacs Lisp Reference Manual}).
 
+@item #<marker @var{position} @var{buffer-or-name}>
+Return a marker at @var{position} in the buffer @var{buffer-or-name}.
+@var{buffer-or-name} can either be a string naming a buffer or an
+actual buffer object.  This is roughly equivalent to creating a new
+marker and calling @samp{$(set-marker marker @var{position}
+@var{buffer-or-name})} (@pxref{Moving Markers, , , elisp, The Emacs
+Lisp Reference Manual}).
+
 @item #<process @var{name}>
 Return the process named @var{name}.  This is equivalent to
 @samp{$(get-process "@var{name}")} (@pxref{Process Information, , ,
@@ -1385,9 +1393,15 @@ Concatenate the string representation of each value.
 
 @node Dollars Expansion
 @section Dollars Expansion
-Eshell has different @code{$} expansion syntax from other shells.  There
-are some similarities, but don't let these lull you into a false sense
-of familiarity.
+Like in many other shells, you can use @code{$} expansions to insert
+various values into your Eshell invocations.  While Eshell's @code{$}
+expansion syntax has some similarities to the syntax from other
+shells, there are also many differences.  Don't let these similarities
+lull you into a false sense of familiarity.
+
+When using command form (@pxref{Invocation}), Eshell will ignore any
+leading nil values, so if @var{foo} is @code{nil}, @samp{$@var{foo}
+echo hello} is equivalent to @samp{echo hello}.
 
 @table @code
 
@@ -2562,8 +2576,6 @@ A special associate array, which can take references of the form
 @samp{$=[REGEXP]}.  It indexes into the directory ring.
 @end table
 
-@item Eshell scripts can't execute in the background
-
 @item Support zsh's ``Parameter Expansion'' syntax, i.e., @samp{$@{@var{name}:-@var{val}@}}
 
 @item Create a mode @code{eshell-browse}
@@ -2585,11 +2597,6 @@ This would be expanded by @code{eshell-expand-file-name} (see above).
 If it's a Lisp function, input redirection implies @command{xargs} (in a
 way@dots{}).  If input redirection is added, also update the
 @code{file-name-quote-list}, and the delimiter list.
-
-@item Allow @samp{#<@var{word} @var{arg}>} as a generic syntax
-
-With the handling of @emph{word} specified by an
-@code{eshell-special-alist}.
 
 @item In @code{eshell-eval-using-options}, allow a @code{:complete} tag
 

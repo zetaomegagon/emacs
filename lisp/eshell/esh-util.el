@@ -192,18 +192,26 @@ start logging to `*eshell last cmd*'."
       (erase-buffer)
       (insert "command: \"" command "\"\n"))))
 
-(defmacro eshell-debug-command (kind message &optional form always)
+(defun eshell-always-debug-command (kind string &rest objects)
+  "Output a debugging message to `*eshell last cmd*'.
+KIND is the kind of message to log.  STRING and OBJECTS are as
+`format-message' (which see)."
+  (declare (indent 1))
+  (with-current-buffer (get-buffer-create eshell-debug-command-buffer)
+    (insert "\n\C-l\n[" (symbol-name kind) "] "
+            (apply #'format-message string objects))))
+
+(defmacro eshell-debug-command (kind string &rest objects)
   "Output a debugging message to `*eshell last cmd*' if debugging is enabled.
-KIND is the kind of message to log (either `form' or `io').  If
-present in `eshell-debug-command' (or if ALWAYS is non-nil),
-output this message; otherwise, ignore it."
+KIND is the kind of message to log (either `form' or `process').  If
+present in `eshell-debug-command', output this message; otherwise, ignore it.
+
+STRING and OBJECTS are as `format-message' (which see)."
+  (declare (indent 1))
   (let ((kind-sym (make-symbol "kind")))
     `(let ((,kind-sym ,kind))
-       (when ,(or always `(memq ,kind-sym eshell-debug-command))
-         (with-current-buffer (get-buffer-create eshell-debug-command-buffer)
-           (insert "\n\C-l\n[" (symbol-name ,kind-sym) "] " ,message)
-           (when-let ((form ,form))
-             (insert "\n\n" (eshell-stringify form))))))))
+       (when (memq ,kind-sym eshell-debug-command)
+         (eshell-always-debug-command ,kind-sym ,string ,@objects)))))
 
 (defun eshell--mark-as-output (start end &optional object)
   "Mark the text from START to END as Eshell output.
@@ -225,6 +233,57 @@ current buffer."
                          (= end end1))
                 (eshell--mark-as-output start1 end1)))))
     (add-hook 'after-change-functions hook nil t)))
+
+(defun eshell--unmark-string-as-output (string)
+  "Unmark STRING as Eshell output."
+  (remove-list-of-text-properties
+   0 (length string)
+   '(rear-nonsticky front-sticky field insert-in-front-hooks)
+   string)
+  string)
+
+(defsubst eshell--region-p (object)
+  "Return non-nil if OBJECT is a pair of numbers or markers."
+  (and (consp object)
+       (number-or-marker-p (car object))
+       (number-or-marker-p (cdr object))))
+
+(defmacro eshell-with-temp-command (command &rest body)
+  "Temporarily insert COMMAND into the buffer and execute the forms in BODY.
+
+COMMAND can be a string to insert, a cons cell (START . END)
+specifying a region in the current buffer, or (:file . FILENAME)
+to temporarily insert the contents of FILENAME.
+
+Before executing BODY, narrow the buffer to the text for COMMAND
+and and set point to the beginning of the narrowed region.
+
+The value returned is the last form in BODY."
+  (declare (indent 1))
+  (let ((command-sym (make-symbol "command"))
+        (begin-sym (make-symbol "begin"))
+        (end-sym (make-symbol "end")))
+    `(let ((,command-sym ,command))
+       (if (eshell--region-p ,command-sym)
+           (save-restriction
+             (narrow-to-region (car ,command-sym) (cdr ,command-sym))
+             (goto-char (car ,command-sym))
+             ,@body)
+         ;; Since parsing relies partly on buffer-local state
+         ;; (e.g. that of `eshell-parse-argument-hook'), we need to
+         ;; perform the parsing in the Eshell buffer.
+         (let ((,begin-sym (point)) ,end-sym)
+           (with-silent-modifications
+             (if (stringp ,command-sym)
+                 (insert ,command-sym)
+               (forward-char (cadr (insert-file-contents (cdr ,command-sym)))))
+             (setq ,end-sym (point))
+             (unwind-protect
+                 (save-restriction
+                   (narrow-to-region ,begin-sym ,end-sym)
+                   (goto-char ,begin-sym)
+                   ,@body)
+               (delete-region ,begin-sym ,end-sym))))))))
 
 (defun eshell-find-delimiter
   (open close &optional bound reverse-p backslash-p)

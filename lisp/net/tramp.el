@@ -8,6 +8,9 @@
 ;; Keywords: comm, processes
 ;; Package: tramp
 
+;; This is a GNU ELPA :core package.  Avoid functionality that is not
+;; compatible with the version of Emacs recorded in trampver.el.
+
 ;; This file is part of GNU Emacs.
 
 ;; GNU Emacs is free software: you can redistribute it and/or modify
@@ -64,7 +67,11 @@
 (declare-function file-notify-rm-watch "filenotify")
 (declare-function netrc-parse "netrc")
 (defvar auto-save-file-name-transforms)
+(defvar ls-lisp-dirs-first)
+(defvar ls-lisp-emulation)
+(defvar ls-lisp-ignore-case)
 (defvar ls-lisp-use-insert-directory-program)
+(defvar ls-lisp-verbosity)
 (defvar tramp-prefix-format)
 (defvar tramp-prefix-regexp)
 (defvar tramp-method-regexp)
@@ -240,9 +247,9 @@ pair of the form (KEY VALUE).  The following KEYs are defined:
     \"%\" followed by a letter are expanded in the arguments as
     follows:
 
-    - \"%h\" is replaced by the host name
-    - \"%u\" is replaced by the user name
-    - \"%p\" is replaced by the port number
+    - \"%h\" is replaced by the host name.
+    - \"%u\" is replaced by the user name.
+    - \"%p\" is replaced by the port number.
     - \"%%\" can be used to obtain a literal percent character.
 
     If a sub-list containing \"%h\", \"%u\" or \"%p\" is
@@ -271,6 +278,8 @@ pair of the form (KEY VALUE).  The following KEYs are defined:
     - \"%z\" is replaced by the `tramp-scp-direct-remote-copying'
       argument if it is supported.
     - \"%d\" is replaced by the device detected by `tramp-adb-get-device'.
+    - \"%a\" adds the pseudo-terminal allocation argument \"-t\" in
+       asynchronous processes, if the connection type is not `pipe'.
 
     The existence of `tramp-login-args', combined with the
     absence of `tramp-copy-args', is an indication that the
@@ -405,7 +414,7 @@ Another host name is useful only in combination with
   ;; an external method.
   (cond
    ;; PuTTY is installed.  We don't take it, if it is installed on a
-   ;; non-windows system, or pscp from the pssh (parallel ssh) package
+   ;; non-Windows system, or pscp from the pssh (parallel ssh) package
    ;; is found.
    ((and (eq system-type 'windows-nt) (executable-find "pscp")) "pscp")
    ;; There is an ssh installation.
@@ -657,6 +666,17 @@ instead of altering this variable.
 
 The `sudo' program appears to insert a `^@' character into the prompt."
   :version "29.1"
+  :type 'regexp)
+
+(defcustom tramp-otp-password-prompt-regexp
+  (rx-to-string
+   `(: bol (* nonl)
+       ;; JumpCloud.
+       (group (| "Verification code"))
+       (* nonl) (any . ,tramp-compat-password-colon-equivalents) (* blank)))
+  "Regexp matching one-time password prompts.
+The regexp should match at end of buffer."
+  :version "29.2"
   :type 'regexp)
 
 (defcustom tramp-wrong-passwd-regexp
@@ -1331,6 +1351,7 @@ let-bind this variable."
 ;; GNU/Linux (Debian, Suse, RHEL, Cygwin, MINGW64): /bin:/usr/bin
 ;; FreeBSD, DragonFly: /usr/bin:/bin:/usr/sbin:/sbin: - beware trailing ":"!
 ;; FreeBSD 12.1, Darwin: /usr/bin:/bin:/usr/sbin:/sbin
+;; NetBSD 9.3: /usr/bin:/bin:/usr/sbin:/sbin:/usr/pkg/bin:/usr/pkg/sbin:/usr/local/bin:/usr/local/sbin
 ;; IRIX64: /usr/bin
 ;; QNAP QTS: ---
 ;; Hydra: /run/current-system/sw/bin:/bin:/usr/bin
@@ -3510,7 +3531,7 @@ BODY is the backend specific code."
 			(let ((inhibit-file-name-handlers
 			       `(tramp-file-name-handler
 				 tramp-crypt-file-name-handler
-				 . inhibit-file-name-handlers))
+				 . ,inhibit-file-name-handlers))
 			      (inhibit-file-name-operation 'write-region))
 			  (find-file-name-handler ,visit 'write-region))))
 	  ;; We use this to save the value of
@@ -3790,6 +3811,9 @@ Let-bind it when necessary.")
     (with-parsed-tramp-file-name name nil
       (unless (tramp-run-real-handler #'file-name-absolute-p (list localname))
 	(setq localname (concat "/" localname)))
+      ;; Tilde expansion shall be possible also for quoted localname.
+      (when (string-prefix-p "~" (file-name-unquote localname))
+	(setq localname (file-name-unquote localname)))
       ;; Expand tilde.  Usually, the methods applying this handler do
       ;; not support tilde expansion.  But users could declare a
       ;; respective connection property.  (Bug#53847)
@@ -4142,7 +4166,7 @@ Let-bind it when necessary.")
 	  (tramp-error v 'file-error "Unsafe backup file name"))))))
 
 (defun tramp-handle-insert-directory
-  (filename switches &optional wildcard full-directory-p)
+    (filename switches &optional wildcard full-directory-p)
   "Like `insert-directory' for Tramp files."
   (require 'ls-lisp)
   (unless switches (setq switches ""))
@@ -4155,8 +4179,14 @@ Let-bind it when necessary.")
     (access-file filename "Reading directory"))
   (with-parsed-tramp-file-name (expand-file-name filename) nil
     (with-tramp-progress-reporter v 0 (format "Opening directory %s" filename)
-      (let (ls-lisp-use-insert-directory-program start)
-	;; Silence byte compiler.
+      ;; We bind `ls-lisp-emulation' to nil (which is GNU).
+      ;; `ls-lisp-set-options' modifies `ls-lisp-ignore-case',
+      ;; `ls-lisp-dirs-first' and `ls-lisp-verbosity', so we bind them
+      ;; as well.  We don't want to use `insert-directory-program'.
+      (let (ls-lisp-emulation ls-lisp-ignore-case ls-lisp-dirs-first
+	    ls-lisp-verbosity ls-lisp-use-insert-directory-program start)
+	;; Set proper options based on `ls-lisp-emulation'.
+	(tramp-compat-funcall 'ls-lisp-set-options)
 	(tramp-run-real-handler
 	 #'insert-directory
 	 (list filename switches wildcard full-directory-p))
@@ -4858,6 +4888,7 @@ a connection-local variable."
 		  (when adb-file-name-handler-p
 		    (tramp-compat-funcall
 		     'tramp-adb-get-device v)))
+                 (pta (unless (eq connection-type 'pipe) "-t"))
 		 login-args p)
 
 	    ;; Replace `login-args' place holders.  Split
@@ -4873,7 +4904,7 @@ a connection-local variable."
 		 v 'tramp-login-args
 		 ?h (or host "") ?u (or user "") ?p (or port "")
 		 ?c (format-spec (or options "") (format-spec-make ?t tmpfile))
-		 ?d (or device "") ?l ""))))
+		 ?d (or device "") ?a (or pta "") ?l ""))))
 	     p (make-process
 		:name name :buffer buffer
 		:command (append `(,login-program) login-args command)
@@ -5362,6 +5393,25 @@ of."
 	     #'tramp-read-passwd-without-cache #'tramp-read-passwd)
 	 proc)
 	tramp-local-end-of-line))
+      ;; Hide password prompt.
+      (narrow-to-region (point-max) (point-max))))
+  t)
+
+(defun tramp-action-otp-password (proc vec)
+  "Query the user for a one-time password."
+  (with-current-buffer (process-buffer proc)
+    (let ((case-fold-search t)
+	  prompt)
+      (goto-char (point-min))
+      (tramp-check-for-regexp proc tramp-process-action-regexp)
+      (setq prompt (concat (match-string 1) " "))
+      (tramp-message vec 3 "Sending %s" (match-string 1))
+      ;; We don't call `tramp-send-string' in order to hide the
+      ;; password from the debug buffer and the traces.
+      (process-send-string
+       proc
+       (concat
+	(tramp-read-passwd-without-cache proc prompt) tramp-local-end-of-line))
       ;; Hide password prompt.
       (narrow-to-region (point-max) (point-max))))
   t)
@@ -6531,8 +6581,8 @@ Consults the auth-source package."
 
 (defun tramp-read-passwd-without-cache (proc &optional prompt)
   "Read a password from user (compat function)."
-  ;; We suspend the timers while reading the password.
   (declare (tramp-suppress-trace t))
+  ;; We suspend the timers while reading the password.
   (let (tramp-dont-suspend-timers)
     (with-tramp-suspended-timers
       (password-read

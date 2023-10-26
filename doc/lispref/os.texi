@@ -2127,6 +2127,14 @@ This function returns the number of days between the beginning of year
 The operating system limits the range of time and zone values.
 @end defun
 
+@defun days-to-time days
+This is not quite the inverse of the @code{time-to-days} function, as
+it uses the Emacs epoch (instead of the year 1) for historical
+reasons.  To get the inverse, subtract @code{(time-to-days 0)} from
+@var{days}, in which case @code{days-to-time} may return @code{nil} if
+@var{days} is negative.
+@end defun
+
 @defun time-to-day-in-year time-value
 This returns the day number within the year corresponding to @var{time-value},
 assuming the default time zone.
@@ -3220,14 +3228,24 @@ These have the same meaning as they do when used in calls to
 @code{notifications-notify}.
 
 @item :urgency @var{urgency}
+The set of values for @var{urgency} is the same as with
+@code{notifications-notify}, but the urgency applies to all
+notifications displayed with the defined @var{group}, except under
+Android 7.1 and earlier.
+
 @item :group @var{group}
-These two parameters are ignored under Android 7.1 and earlier
-versions of the system.  The set of values for @var{urgency} is the
-same as with @code{notifications-notify}, but the urgency applies to
-all notifications displayed with the defined @var{group}.
+@var{group} is a string that designates a category to which the
+notification sent will belong.  This category is reproduced within the
+system's notification settings menus, but is ignored under Android 7.1
+and earlier.
 
 If @var{group} is nil or not present within @var{params}, it is
 replaced by the string @samp{"Desktop Notifications"}.
+
+Callers should provide one stable combination of @var{urgency} and
+@var{group} for each kind of notification they send, given that the
+system may elect to disregard @var{urgency} if it does not match that
+of any notification previously delivered to @var{group}.
 
 @item :icon @var{icon}
 This parameter controls the symbolic icon the notification will be
@@ -3345,7 +3363,8 @@ reliably report file attribute changes when watching a directory.
 The @code{stopped} event means that watching the file has been
 discontinued.  This could be because @code{file-notify-rm-watch} was
 called (see below), or because the file being watched was deleted, or
-due to another error reported from the underlying library which makes
+because the filesystem of the file being watched was unmounted, or due
+to another error reported from the underlying library which makes
 further watching impossible.
 
 @var{file} and @var{file1} are the name of the file(s) whose event is

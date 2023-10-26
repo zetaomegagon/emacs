@@ -554,8 +554,10 @@ If COUNT is negative, shifting is actually to the right.
 In this case, if VALUE is a negative fixnum treat it as unsigned,
 i.e., subtract 2 * `most-negative-fixnum' from VALUE before shifting it.
 
-This function is provided for compatibility.  In new code, use `ash'
-instead."
+Most uses of this function turn out to be mistakes.  We recommend
+to use `ash' instead, unless COUNT could ever be negative, and
+if, when COUNT is negative, your program really needs the special
+treatment of negative COUNT provided by this function."
   (declare (compiler-macro
             (lambda (form)
               (macroexp-warn-and-return
@@ -993,11 +995,11 @@ SEQ must be a list, vector, or string.  The comparison is done with `equal'.
 Contrary to `delete', this does not use side-effects, and the argument
 SEQ is not modified."
   (declare (side-effect-free t))
-  (if (nlistp seq)
-      ;; If SEQ isn't a list, there's no need to copy SEQ because
-      ;; `delete' will return a new object.
-      (delete elt seq)
-    (delete elt (copy-sequence seq))))
+  (delete elt (if (nlistp seq)
+                  ;; If SEQ isn't a list, there's no need to copy SEQ because
+                  ;; `delete' will return a new object.
+                  seq
+                (copy-sequence seq))))
 
 (defun remq (elt list)
   "Return LIST with all occurrences of ELT removed.
@@ -1957,6 +1959,7 @@ be a list of the form returned by `event-start' and `event-end'."
 (set-advertised-calling-convention 'redirect-frame-focus '(frame focus-frame) "24.3")
 (set-advertised-calling-convention 'libxml-parse-xml-region '(&optional start end base-url) "27.1")
 (set-advertised-calling-convention 'libxml-parse-html-region '(&optional start end base-url) "27.1")
+(set-advertised-calling-convention 'sleep-for '(seconds) "30.1")
 (set-advertised-calling-convention 'time-convert '(time form) "29.1")
 
 ;;;; Obsolescence declarations for variables, and aliases.
@@ -3406,7 +3409,7 @@ causes it to evaluate `help-form' and display the result."
     (message "%s%s" prompt (char-to-string char))
     char))
 
-(defun sit-for (seconds &optional nodisp obsolete)
+(defun sit-for (seconds &optional nodisp)
   "Redisplay, then wait for SECONDS seconds.  Stop when input is available.
 SECONDS may be a floating-point value.
 \(On operating systems that do not support waiting for fractions of a
@@ -3415,29 +3418,11 @@ second, floating-point values are rounded down to the nearest integer.)
 If optional arg NODISP is t, don't redisplay, just wait for input.
 Redisplay does not happen if input is available before it starts.
 
-Value is t if waited the full time with no input arriving, and nil otherwise.
-
-An obsolete, but still supported form is
-\(sit-for SECONDS &optional MILLISECONDS NODISP)
-where the optional arg MILLISECONDS specifies an additional wait period,
-in milliseconds; this was useful when Emacs was built without
-floating point support."
-  (declare (advertised-calling-convention (seconds &optional nodisp) "22.1")
-           (compiler-macro
-            (lambda (form)
-              (if (not (or (numberp nodisp) obsolete)) form
-                (macroexp-warn-and-return
-                 (format-message "Obsolete calling convention for `sit-for'")
-                 `(,(car form) (+ ,seconds (/ (or ,nodisp 0) 1000.0)) ,obsolete)
-                 '(obsolete sit-for))))))
+Value is t if waited the full time with no input arriving, and nil otherwise."
   ;; This used to be implemented in C until the following discussion:
   ;; https://lists.gnu.org/r/emacs-devel/2006-07/msg00401.html
   ;; Then it was moved here using an implementation based on an idle timer,
   ;; which was then replaced by the use of read-event.
-  (if (numberp nodisp)
-      (setq seconds (+ seconds (* 1e-3 nodisp))
-            nodisp obsolete)
-    (if obsolete (setq nodisp obsolete)))
   (cond
    (noninteractive
     (sleep-for seconds)
@@ -3499,7 +3484,7 @@ If there is a natural number at point, use it as default."
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map minibuffer-local-map)
 
-    (define-key map [remap self-insert-command] #'read-char-from-minibuffer-insert-char)
+    ;; (define-key map [remap self-insert-command] #'read-char-from-minibuffer-insert-char)
     (define-key map [remap exit-minibuffer] #'read-char-from-minibuffer-insert-other)
 
     (define-key map [remap recenter-top-bottom] #'minibuffer-recenter-top-bottom)
@@ -3530,7 +3515,7 @@ allowed to type into the minibuffer.  When the user types any
 such key, this command discard all minibuffer input and displays
 an error message."
   (interactive)
-  (when (minibufferp)
+  (when (minibufferp) ;;FIXME: Why?
     (delete-minibuffer-contents)
     (ding)
     (discard-input)
@@ -3578,6 +3563,10 @@ There is no need to explicitly add `help-char' to CHARS;
                                         (interactive)
                                         (let ((help-form msg)) ; lexically bound msg
                                           (help-form-show)))))
+                        ;; FIXME: We use `read-char-from-minibuffer-insert-char'
+                        ;; here only as a kind of alias of `self-insert-command'
+                        ;; to prevent those keys from being remapped to
+                        ;; `read-char-from-minibuffer-insert-other'.
                         (dolist (char chars)
                           (define-key map (vector char)
                                       #'read-char-from-minibuffer-insert-char))
@@ -3589,7 +3578,15 @@ There is no need to explicitly add `help-char' to CHARS;
                 read-char-from-minibuffer-map))
          ;; Protect this-command when called from pre-command-hook (bug#45029)
          (this-command this-command)
-         (result (progn
+         (result (minibuffer-with-setup-hook
+		     (lambda ()
+		       (add-hook 'post-command-hook
+				 (lambda ()
+				   ;; FIXME: Should we use `<='?
+				   (if (= (1+ (minibuffer-prompt-end))
+					  (point-max))
+                                       (exit-minibuffer)))
+				 nil 'local))
                    ;; Disable text conversion if it is enabled.
                    ;; (bug#65370)
                    (when (fboundp 'set-text-conversion-style)
@@ -5685,9 +5682,11 @@ See also `string-equal'."
   (eq t (compare-strings string1 0 nil string2 0 nil t)))
 
 (defun string-prefix-p (prefix string &optional ignore-case)
-  "Return non-nil if PREFIX is a prefix of STRING.
+  "Return non-nil if STRING begins with PREFIX.
+PREFIX should be a string; the function returns non-nil if the
+characters at the beginning of STRING compare equal with PREFIX.
 If IGNORE-CASE is non-nil, the comparison is done without paying attention
-to case differences."
+to letter-case differences."
   (declare (side-effect-free t))
   (let ((prefix-length (length prefix)))
     (if (> prefix-length (length string)) nil
@@ -5695,9 +5694,11 @@ to case differences."
 			     0 prefix-length ignore-case)))))
 
 (defun string-suffix-p (suffix string  &optional ignore-case)
-  "Return non-nil if SUFFIX is a suffix of STRING.
+  "Return non-nil if STRING ends with SUFFIX.
+SUFFIX should be a string; the function returns non-nil if the
+characters at end of STRING compare equal with SUFFIX.
 If IGNORE-CASE is non-nil, the comparison is done without paying
-attention to case differences."
+attention to letter-case differences."
   (declare (side-effect-free t))
   (let ((start-pos (- (length string) (length suffix))))
     (and (>= start-pos 0)
@@ -5754,8 +5755,8 @@ Return nil if there isn't one."
 	 (load-elt (and loads (car loads))))
     (save-match-data
       (while (and loads
-		  (or (null (car load-elt))
-		      (not (string-match file-regexp (car load-elt)))))
+		  (not (and (car load-elt)
+                            (string-match file-regexp (car load-elt)))))
 	(setq loads (cdr loads)
 	      load-elt (and loads (car loads)))))
     load-elt))
@@ -6328,7 +6329,7 @@ command is called from a keyboard macro?"
              ;; Skip special forms (from non-compiled code).
              (and frame (null (car frame)))
              ;; Skip also `interactive-p' (because we don't want to know if
-             ;; interactive-p was called interactively but if it's caller was).
+             ;; interactive-p was called interactively but if its caller was).
              (eq (nth 1 frame) 'interactive-p)
              ;; Skip package-specific stack-frames.
              (let ((skip (run-hook-with-args-until-success
@@ -6573,7 +6574,6 @@ effectively rounded up."
   (unless min-time
     (setq min-time 0.2))
   (let ((reporter
-	 ;; Force a call to `message' now
 	 (cons (or min-value 0)
 	       (vector (if (>= min-time 0.02)
 			   (float-time) nil)
@@ -6584,6 +6584,7 @@ effectively rounded up."
                        min-time
                        ;; SUFFIX
                        nil))))
+    ;; Force a call to `message' now.
     (progress-reporter-update reporter (or current-value min-value))
     reporter))
 
@@ -7277,13 +7278,15 @@ lines."
             (setq start (length string)))))
       (nreverse lines))))
 
-(defun buffer-match-p (condition buffer-or-name &optional arg)
+(defvar buffer-match-p--past-warnings nil)
+
+(defun buffer-match-p (condition buffer-or-name &rest args)
   "Return non-nil if BUFFER-OR-NAME matches CONDITION.
 CONDITION is either:
 - the symbol t, to always match,
 - the symbol nil, which never matches,
 - a regular expression, to match a buffer name,
-- a predicate function that takes BUFFER-OR-NAME and ARG as
+- a predicate function that takes BUFFER-OR-NAME plus ARGS as
   arguments, and returns non-nil if the buffer matches,
 - a cons-cell, where the car describes how to interpret the cdr.
   The car can be one of the following:
@@ -7308,9 +7311,18 @@ CONDITION is either:
                       ((pred stringp)
                        (string-match-p condition (buffer-name buffer)))
                       ((pred functionp)
-                       (if (eq 1 (cdr (func-arity condition)))
-                           (funcall condition buffer-or-name)
-                         (funcall condition buffer-or-name arg)))
+                       (if (cdr args)
+                           ;; New in Emacs>29.1. no need for compatibility hack.
+                           (apply condition buffer-or-name args)
+                         (condition-case-unless-debug err
+                             (apply condition buffer-or-name args)
+                           (wrong-number-of-arguments
+                            (unless (member condition
+                                            buffer-match-p--past-warnings)
+                              (message "%s" (error-message-string err))
+                              (push condition buffer-match-p--past-warnings))
+                            (apply condition buffer-or-name
+                                   (if args nil '(nil)))))))
                       (`(major-mode . ,mode)
                        (eq
                         (buffer-local-value 'major-mode buffer)
@@ -7332,17 +7344,17 @@ CONDITION is either:
                 (throw 'match t)))))))
     (funcall match (list condition))))
 
-(defun match-buffers (condition &optional buffers arg)
+(defun match-buffers (condition &optional buffers &rest args)
   "Return a list of buffers that match CONDITION, or nil if none match.
 See `buffer-match-p' for various supported CONDITIONs.
 By default all buffers are checked, but the optional
 argument BUFFERS can restrict that: its value should be
 an explicit list of buffers to check.
-Optional argument ARG is passed to `buffer-match-p', for
+Optional arguments ARGS are passed to `buffer-match-p', for
 predicate conditions in CONDITION."
   (let (bufs)
     (dolist (buf (or buffers (buffer-list)))
-      (when (buffer-match-p condition (get-buffer buf) arg)
+      (when (apply #'buffer-match-p condition (get-buffer buf) args)
         (push buf bufs)))
     bufs))
 

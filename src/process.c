@@ -1279,7 +1279,8 @@ static void
 update_process_mark (struct Lisp_Process *p)
 {
   Lisp_Object buffer = p->buffer;
-  if (BUFFERP (buffer))
+  if (BUFFERP (buffer)
+      && XMARKER (p->mark)->buffer != XBUFFER (buffer))
     set_marker_both (p->mark, buffer,
 		     BUF_ZV (XBUFFER (buffer)),
 		     BUF_ZV_BYTE (XBUFFER (buffer)));
@@ -2206,10 +2207,15 @@ create_process (Lisp_Object process, char **new_argv, Lisp_Object current_dir)
       inchannel = p->open_fd[READ_FROM_SUBPROCESS];
       forkout = p->open_fd[SUBPROCESS_STDOUT];
 
-#if (defined (GNU_LINUX) || defined __ANDROID__)	\
-  && defined (F_SETPIPE_SZ)
-      fcntl (inchannel, F_SETPIPE_SZ, read_process_output_max);
-#endif /* (GNU_LINUX || __ANDROID__) && F_SETPIPE_SZ */
+#if defined(F_SETPIPE_SZ) && defined(F_GETPIPE_SZ)
+      /* If they requested larger reads than the default system pipe
+         capacity, try enlarging the capacity to match the request.  */
+      if (read_process_output_max > fcntl (inchannel, F_GETPIPE_SZ))
+	{
+	  int readmax = clip_to_bounds (1, read_process_output_max, INT_MAX);
+	  fcntl (inchannel, F_SETPIPE_SZ, readmax);
+	}
+#endif
     }
 
   if (!NILP (p->stderrproc))
@@ -7415,8 +7421,31 @@ child_signal_notify (void)
   int fd = child_signal_write_fd;
   eassert (0 <= fd);
   char dummy = 0;
-  if (emacs_write (fd, &dummy, 1) != 1)
-    emacs_perror ("writing to child signal FD");
+  /* We used to error out here, like this:
+
+     if (emacs_write (fd, &dummy, 1) != 1)
+       emacs_perror ("writing to child signal FD");
+
+     But this calls `emacs_perror', which in turn invokes a localized
+     version of strerror, which is not reentrant and must not be
+     called within a signal handler:
+
+       __lll_lock_wait_private () at /lib64/libc.so.6
+       malloc () at /lib64/libc.so.6
+       _nl_make_l10nflist.localalias () at /lib64/libc.so.6
+       _nl_find_domain () at /lib64/libc.so.6
+       __dcigettext () at /lib64/libc.so.6
+       strerror_l () at /lib64/libc.so.6
+       emacs_perror (message=message@entry=0x6babc2)
+       child_signal_notify () at process.c:7419
+       handle_child_signal (sig=17) at process.c:7533
+       deliver_process_signal (sig=17, handler=0x6186b0>)
+       <signal handler called> () at /lib64/libc.so.6
+       _int_malloc () at /lib64/libc.so.6
+       in malloc () at /lib64/libc.so.6.
+
+     So we no longer check errors of emacs_write here.  */
+  emacs_write (fd, &dummy, 1);
 #endif
 }
 

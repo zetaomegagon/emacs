@@ -11448,7 +11448,6 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
 	      else
 		move_it_in_display_line (&it, start, it1_x + 1,
 					 MOVE_TO_POS | MOVE_TO_X);
-	      move_it_to (&it, start - 1, -1, -1, -1, MOVE_TO_POS);
 	      start_x = it.current_x;
 	      /* If we didn't change our buffer position, the pixel
 		 width of what's here was not yet accounted for; do it
@@ -11809,7 +11808,7 @@ vadd_to_log (char const *format, va_list ap)
   eassert (nargs <= ARRAYELTS (args));
   AUTO_STRING (args0, format);
   args[0] = args0;
-  for (ptrdiff_t i = 1; i <= nargs; i++)
+  for (ptrdiff_t i = 1; i < nargs; i++)
     args[i] = va_arg (ap, Lisp_Object);
   Lisp_Object msg = Qnil;
   msg = Fformat_message (nargs, args);
@@ -19171,7 +19170,7 @@ try_cursor_movement (Lisp_Object window, struct text_pos startp,
       && !f->cursor_type_changed
       && NILP (Vshow_trailing_whitespace)
       /* When display-line-numbers is in relative mode, moving point
-	 requires to redraw the entire window.  */
+	 requires redrawing the entire window.  */
       && !EQ (Vdisplay_line_numbers, Qrelative)
       && !EQ (Vdisplay_line_numbers, Qvisual)
       /* When the current line number should be displayed in a
@@ -35545,12 +35544,10 @@ note_mouse_highlight (struct frame *f, int x, int y)
     {
       note_tab_bar_highlight (f, x, y);
       if (tab_bar__dragging_in_progress)
-	{
 	  cursor = FRAME_OUTPUT_DATA (f)->hand_cursor;
-	  goto set_cursor;
-	}
       else
-	return;
+	cursor = FRAME_OUTPUT_DATA (f)->nontext_cursor;
+      goto set_cursor;
     }
   else
     {
@@ -35568,7 +35565,8 @@ note_mouse_highlight (struct frame *f, int x, int y)
   if (EQ (window, f->tool_bar_window))
     {
       note_tool_bar_highlight (f, x, y);
-      return;
+      cursor = FRAME_OUTPUT_DATA (f)->nontext_cursor;
+      goto set_cursor;
     }
 #endif
 
@@ -37047,14 +37045,15 @@ See also `overlay-arrow-string'.  */);
   Voverlay_arrow_position = Qnil;
 
   DEFVAR_LISP ("overlay-arrow-string", Voverlay_arrow_string,
-    doc: /* String to display as an arrow in non-window frames.
+    doc: /* String to display as an arrow in text-mode frames.
 See also `overlay-arrow-position'.  */);
   Voverlay_arrow_string = build_pure_c_string ("=>");
 
   DEFVAR_LISP ("overlay-arrow-variable-list", Voverlay_arrow_variable_list,
     doc: /* List of variables (symbols) which hold markers for overlay arrows.
 The symbols on this list are examined during redisplay to determine
-where to display overlay arrows.  */);
+where to display overlay arrows.
+See also `overlay-arrow-string'.  */);
   Voverlay_arrow_variable_list
     = list1 (intern_c_string ("overlay-arrow-position"));
 
