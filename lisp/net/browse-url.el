@@ -244,7 +244,7 @@ be used instead."
      (concat
       "\\(?:"
       ;; Match paired parentheses, e.g. in Wikipedia URLs:
-      ;; http://thread.gmane.org/47B4E3B2.3050402@gmail.com
+      ;; http://thread.gmane.org/47B4E3B2.3050402@gmail.com [dead link]
       "[" chars punct "]+" "(" "[" chars punct "]+" ")"
       "\\(?:" "[" chars punct "]+" "[" chars "]" "\\)?"
       "\\|"
@@ -680,7 +680,9 @@ For example, when point is on an URL fragment like
 Note that if you set this to \"https\", websites that do not yet
 support HTTPS may not load correctly in your web browser.  Such
 websites are increasingly rare, but they do still exist."
-  :type 'string
+  :type '(choice (const :tag "HTTP" "http")
+                 (const :tag "HTTPS" "https")
+                 (string :tag "Something else" "https"))
   :version "29.1")
 
 (defun browse-url-url-at-point ()
@@ -1335,7 +1337,7 @@ point."
     (setq url (browse-url-encode-url url)))
   ;; Make sure the URL starts with an appropriate scheme.
   (unless (string-match "\\(.+\\):/" url)
-    (setq url (concat "http://" url)))
+    (setq url (concat browse-url-default-scheme "://" url)))
   (android-browse-url url browse-url-android-share))
 
 (function-put 'browse-url-default-android-browser
