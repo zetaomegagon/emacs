@@ -27,6 +27,7 @@ case "$input" in
 	    zlib-devel pkgconf
 	    texinfo-tex
 	    surfraw
+		dtach
 	)
 
 	sudo dnf upgrade -y
