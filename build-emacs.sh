@@ -17,7 +17,6 @@ case "$input" in
 	    libwebp-devel
 	    lcms2-devel
 	    gcc
-	    musl-gcc
 	    gcc-c++
 	    cmake
 	    automake
@@ -27,11 +26,12 @@ case "$input" in
 	    poppler-glib-devel
 	    zlib-devel pkgconf
 	    texinfo-tex
+	    surfraw
 	)
 
 	sudo dnf upgrade -y
-	sudo dnf install -y "${pakages[@]}"
 	sudo dnf builddep -y emacs
+	sudo dnf install -y "${packages[@]}"
 
 	# build and install latest sbcl
 	(
@@ -66,7 +66,7 @@ case "$input" in
 	    cd ..
 
 	    src="https://ftp.gnu.org/gnu/mailutils/mailutils-latest.tar.xz"
-	    xz="${src##*/}"
+	    archive="${src##*/}"
 	    dir="${xz%-*}"
 
 	    if [[ -d "$dir" ]]; then
@@ -74,16 +74,19 @@ case "$input" in
 	    fi
 
 	    wget -q "$src"
-	    tmp="$(tar -tJf "$xz" | head -1 | tr -d '/')"
-	    tar -xJf "$xz"
+	    tmp="$(tar -tJf "$archive" | head -1 | tr -d '/')"
+	    tar -xJf "$archive"
 	    mv "$tmp" "$dir"
-	    cd "$dir"
 
-	    ./configure
-	    CC=musl-gcc make -j "$(nproc)"
-	    sudo make uninstall
-	    sudo make install
-	    rm ../"$xz"
+	    (
+		cd "$dir"
+		./configure
+		make -j "$(nproc)"
+		sudo make uninstall
+		sudo make install
+	    )
+
+	    rm "$archive"
 
 	) >/dev/null 2>&1 &
 
@@ -103,8 +106,7 @@ case "$input" in
 		git pull --quiet
 	    fi
 
-	    CC=musl-gcc make -j "$(nproc)"
-	    sudo make uninstall
+	    make -j "$(nproc)"
 	    sudo make install
 
 	) >/dev/null 2>&1 &
@@ -128,15 +130,18 @@ case "$input" in
 		git stash drop
 	    fi
 
-	    CC=musl-gcc ./batch.sh
+	    ./batch.sh
 	    sudo chown -R root:root dist/
 	    sudo cp ./dist/* /usr/local/lib/
 
-	    # link tree-sitter libs
-	    sudo ldconfig /usr/local/lib
-	    sudo prinf "%s" "/usr/local/lib" > /etc/ld.so.conf.d/tree-sitter.conf
-
 	) >/dev/null 2>&1 &
+
+
+	# link tree-sitter libs
+	#
+	# fix this so that we are putting tree-sitter stuff
+	# in it's own directory and linking to it there
+	sudo bash -c 'printf "%s" "/usr/local/lib" > /etc/ld.so.conf.d/tree-sitter.conf'
 
 	tree_sitter_module_build_pid=$!
 	printf "%s\n" "Building Tree-Sitter AST Parser language modules"
@@ -147,13 +152,13 @@ case "$input" in
 	     "$tree_sitter_module_build_pid"
 
 	# clean and update the repo
-	make extraclean
+	sudo make extraclean
 	git fetch upstream
 	git merge --no-edit upstream/master
 	git push -u origin master
 
 	# generate configure script
-	./autogen.sh
+	sudo ./autogen.sh
 
 	# remove old native compiled files
 	version="$(command grep 'PACKAGE_VERSION=' ./configure | cut -d'=' -f2 | tr -d \')"
@@ -171,8 +176,7 @@ case "$input" in
 	# configure the build
 	case "$input" in
 	    --nox)
-		CC=musl-gcc \
-		    ./configure \
+		./configure \
 		    --without-all \
 		    --without-x \
 		    --enable-acl \
@@ -195,8 +199,7 @@ case "$input" in
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --x11)
-		CC=musl-gcc \
-		    ./configure \
+		./configure \
 		    --with-x-toolkit=no \
 		    --with-mailutils \
 		    --with-wide-int \
@@ -210,8 +213,7 @@ case "$input" in
 		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --pgtk)
-		CC=musl-gcc \
-		    ./configure \
+		./configure \
 		    --with-pgtk \
 		    --with-mailutils \
 		    --with-wide-int \
@@ -226,6 +228,7 @@ case "$input" in
 	esac
 
 	# make the build
+	sudo ldconfig /usr/local/lib
 	make -j $(( $(nproc) / 2 ))
 
 	# source some helper functions
@@ -235,13 +238,13 @@ case "$input" in
 	emacs-running-p && emacsclient -e "(save-buffers-kill-emacs)"
 
 	# disable and stop emacs daemon
-	emacsctl disable
+	emacsctl disable || :
 
 	# uninstall old emacs; install new emacs
 	if [[ -e /usr/local/bin/emacs ]]; then
-	    sudo bash -c 'make uninstall && make install'
+	    sudo bash -c '{ make uninstall && make install; } || exit'
 	else
-	    sudo make install
+	    sudo make install || exit
 	fi
 
 	# pull and build straight packages
@@ -254,12 +257,16 @@ case "$input" in
 		    --batch \
 		    --load=$HOME/.emacs.d/early-init.el \
 		    --load=$HOME/.emacs.d/init.el
-	    done
+	    done &
 	fi
 
-	# reload changed unit files and start daemon
+	build_straight_pid=$!
+	printf "%s\n" "Building and compiling Straight packages"
+
+	# reload changed unit files
+	wait "$build_straight_pid"
 	emacsctl daemon-reload
-	emacsctl enable
+	emacsctl start
 	;;
     *)
 	_usage
