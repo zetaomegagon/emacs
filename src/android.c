@@ -1628,6 +1628,10 @@ android_init_emacs_service (void)
 	       "Ljava/lang/String;)Ljava/lang/String;");
   FIND_METHOD (valid_authority, "validAuthority",
 	       "(Ljava/lang/String;)Z");
+  FIND_METHOD (external_storage_available,
+	       "externalStorageAvailable", "()Z");
+  FIND_METHOD (request_storage_access,
+	       "requestStorageAccess", "()V");
 #undef FIND_METHOD
 }
 
@@ -1936,6 +1940,45 @@ NATIVE_NAME (quit) (JNIEnv *env, jobject object)
      input.  */
   Vquit_flag = Qt;
   kill (getpid (), SIGIO);
+}
+
+/* Call shut_down_emacs subsequent to a call to the service's
+   onDestroy callback.  CLOSURE is ignored.  */
+
+static void
+android_shut_down_emacs (void *closure)
+{
+  __android_log_print (ANDROID_LOG_INFO, __func__,
+		       "The Emacs service is being shut down");
+  shut_down_emacs (0, Qnil);
+}
+
+JNIEXPORT void JNICALL
+NATIVE_NAME (shutDownEmacs) (JNIEnv *env, jobject object)
+{
+  JNI_STACK_ALIGNMENT_PROLOGUE;
+
+  android_run_in_emacs_thread (android_shut_down_emacs, NULL);
+}
+
+/* Carry out garbage collection and clear all image caches on the
+   Android terminal.  Called when the system has depleted most of its
+   memory and desires that background processes release unused
+   core.  */
+
+static void
+android_on_low_memory (void *closure)
+{
+  Fclear_image_cache (Qt, Qnil);
+  garbage_collect ();
+}
+
+JNIEXPORT void JNICALL
+NATIVE_NAME (onLowMemory) (JNIEnv *env, jobject object)
+{
+  JNI_STACK_ALIGNMENT_PROLOGUE;
+
+  android_run_in_emacs_thread (android_on_low_memory, NULL);
 }
 
 JNIEXPORT jlong JNICALL
@@ -6517,6 +6560,57 @@ android_request_directory_access (void)
   android_exception_check ();
 
   return rc;
+}
+
+/* Return whether Emacs is entitled to access external storage.
+
+   On Android 5.1 and earlier, such permissions as are declared within
+   an application's manifest are granted during installation and are
+   irrevocable.
+
+   On Android 6.0 through Android 10.0, the right to read external
+   storage is a regular permission granted from the Permissions
+   panel.
+
+   On Android 11.0 and later, that right must be granted through an
+   independent ``Special App Access'' settings panel.  */
+
+bool
+android_external_storage_available_p (void)
+{
+  jboolean rc;
+  jmethodID method;
+
+  if (android_api_level <= 22) /* LOLLIPOP_MR1 */
+    return true;
+
+  method = service_class.external_storage_available;
+  rc = (*android_java_env)->CallNonvirtualBooleanMethod (android_java_env,
+							 emacs_service,
+							 service_class.class,
+							 method);
+  android_exception_check ();
+
+  return rc;
+}
+
+/* Display a dialog from which the aforementioned rights can be
+   granted.  */
+
+void
+android_request_storage_access (void)
+{
+  jmethodID method;
+
+  if (android_api_level <= 22) /* LOLLIPOP_MR1 */
+    return;
+
+  method = service_class.request_storage_access;
+  (*android_java_env)->CallNonvirtualVoidMethod (android_java_env,
+						 emacs_service,
+						 service_class.class,
+						 method);
+  android_exception_check ();
 }
 
 

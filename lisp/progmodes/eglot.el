@@ -221,7 +221,11 @@ chosen (interactively or automatically)."
                                  . ,(eglot-alternatives '(("vscode-json-language-server" "--stdio")
                                                           ("vscode-json-languageserver" "--stdio")
                                                           ("json-languageserver" "--stdio"))))
-                                ((js-mode js-ts-mode tsx-ts-mode typescript-ts-mode typescript-mode)
+                                (((js-mode :language-id "javascript")
+                                  (js-ts-mode :language-id "javascript")
+                                  (tsx-ts-mode :language-id "typescriptreact")
+                                  (typescript-ts-mode :language-id "typescript")
+                                  (typescript-mode :language-id "typescript"))
                                  . ("typescript-language-server" "--stdio"))
                                 ((bash-ts-mode sh-mode) . ("bash-language-server" "start"))
                                 ((php-mode phps-mode)
@@ -1366,7 +1370,18 @@ INTERACTIVE is t if called interactively."
 
 ;;;###autoload
 (defun eglot-ensure ()
-  "Start Eglot session for current buffer if there isn't one."
+  "Start Eglot session for current buffer if there isn't one.
+
+Only use this function (in major mode hooks, etc) if you are
+confident that Eglot can be started safely and efficiently for
+*every* buffer visited where these hooks may execute.
+
+Since it is difficult to establish this confidence fully, it's
+often wise to use the interactive command `eglot' instead.  This
+command only needs to be invoked once per project, as all other
+files of a given major mode visited within the same project will
+automatically become managed with no further user intervention
+needed."
   (let ((buffer (current-buffer)))
     (cl-labels
         ((maybe-connect
@@ -1374,7 +1389,9 @@ INTERACTIVE is t if called interactively."
            (eglot--when-live-buffer buffer
              (remove-hook 'post-command-hook #'maybe-connect t)
              (unless eglot--managed-mode
-               (apply #'eglot--connect (eglot--guess-contact))))))
+               (condition-case-unless-debug oops
+                   (apply #'eglot--connect (eglot--guess-contact))
+                 (error (eglot--warn (error-message-string oops))))))))
       (when buffer-file-name
         (add-hook 'post-command-hook #'maybe-connect 'append t)))))
 
