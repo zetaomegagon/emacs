@@ -552,14 +552,17 @@ host runs a restricted shell, it shall be added to this list, too."
 
 ;;;###tramp-autoload
 (defcustom tramp-local-host-regexp
-  (rx
-   bos
-   (| (literal tramp-system-name)
-      (| "localhost" "localhost4" "localhost6" "127.0.0.1" "::1"))
-   eos)
+  (rx bos
+      (| (literal tramp-system-name)
+	 (| "localhost" "127.0.0.1" "::1"
+	    ;; Fedora.
+	    "localhost4" "localhost6"
+	    ;; Ubuntu.
+	    "ip6-localhost" "ip6-loopback"))
+      eos)
   "Host names which are regarded as local host.
 If the local host runs a chrooted environment, set this to nil."
-  :version "29.1"
+  :version "30.1"
   :type '(choice (const :tag "Chrooted environment" nil)
 		 (regexp :tag "Host regexp")))
 
@@ -747,8 +750,9 @@ The regexp should match at end of buffer."
 
 ;; A security key requires the user physically to touch the device
 ;; with their finger.  We must tell it to the user.
-;; Added in OpenSSH 8.2.  I've tested it with yubikey.  Nitrokey,
-;; which has also passed the tests, does not show such a message.
+;; Added in OpenSSH 8.2.  I've tested it with yubikey.  Nitrokey and
+;; Titankey, which have also passed the tests, do not show such a
+;; message.
 (defcustom tramp-security-key-confirm-regexp
   (rx bol (* "\r") "Confirm user presence for key " (* nonl) (* (any "\r\n")))
   "Regular expression matching security key confirmation message.
@@ -2742,19 +2746,27 @@ not in completion mode."
       (tramp-run-real-handler #'file-exists-p (list filename))))
 
 (defmacro tramp-skeleton-file-name-all-completions
-    (_filename _directory &rest body)
+    (filename directory &rest body)
   "Skeleton for `tramp-*-handle-filename-all-completions'.
 BODY is the backend specific code."
   (declare (indent 2) (debug t))
   `(ignore-error file-missing
      (delete-dups (delq nil
        (let* ((case-fold-search read-file-name-completion-ignore-case)
-	      (regexp (mapconcat #'identity completion-regexp-list "\\|"))
-	      (result ,@body))
+	      (result (progn ,@body)))
+	 ;; Some storage systems do not return "." and "..".
+	 (when (tramp-tramp-file-p ,directory)
+	   (dolist (elt '(".." "."))
+	     (when (string-prefix-p ,filename elt)
+	       (setq result (cons (concat elt "/") result)))))
 	 (if (consp completion-regexp-list)
 	     ;; Discriminate over `completion-regexp-list'.
 	     (mapcar
-	      (lambda (x) (and (stringp x) (string-match-p regexp x) x))
+	      (lambda (x)
+		(when (stringp x)
+		  (catch 'match
+		    (dolist (elt completion-regexp-list x)
+		      (unless (string-match-p elt x) (throw 'match nil))))))
 	      result)
 	   result))))))
 
@@ -6719,7 +6731,14 @@ If PROCESS is a process object which contains the property
 `remote-pid', or PROCESS is a number and REMOTE is a remote file name,
 PROCESS is interpreted as process on the respective remote host, which
 will be the process to signal.
+If PROCESS is a string, it is interpreted as process object with
+the respective process name, or as a number.
 SIGCODE may be an integer, or a symbol whose name is a signal name."
+  (when (stringp process)
+    (setq process (or (get-process process)
+		      (and (string-match-p (rx bol (+ digit) eol) process)
+			   (string-to-number process))
+		      (signal 'wrong-type-argument (list #'processp process)))))
   (let (pid vec)
     (cond
      ((processp process)
