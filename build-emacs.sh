@@ -27,7 +27,7 @@ case "$input" in
 	    zlib-devel pkgconf
 	    texinfo-tex
 	    surfraw
-		dtach
+	    dtach
 	)
 
 	sudo dnf upgrade -y
@@ -36,26 +36,39 @@ case "$input" in
 
 	# build and install latest sbcl
 	(
-	    cd ..
+	    get-current-version() {
+		git -c 'versionsort.suffix=' \
+		    ls-remote --tags --sort='v:refname' \
+		    "git://git.code.sf.net/p/sbcl/sbcl" \
+		    | command grep -E 'sbcl-[0-9]+[^\^\{\}]*$' \
+		    | sed -E 's,(^.*-)(.*),\2,g'
+	    }
 
-	    if ! hash sbcl; then
-		sudo dnf install sbcl -y
+	    sbcl_git_version="$(get-current-version)"
+	    sbcl_installed_version="$(sbcl --version | cut -d' ' -f2 | sed -E 's,(^.*)(\..*$),\1,g')"
+
+	    if [[ "$sbcl_git_version" != "$sbcl_installed_version" ]]; then
+		cd ..
+
+		if ! hash sbcl; then
+		    sudo dnf install sbcl -y
+		fi
+
+		if [[ ! -d sbcl ]]; then
+		    git clone git://git.code.sf.net/p/sbcl/sbcl
+		fi
+
+		cd sbcl && git pull --quiet && ./clean.sh && ./make.sh
+
+		(
+		    cd ./doc/manual/
+		    make clean && make
+		    sudo dnf remove texinfo-tex -y
+		)
+
+		sudo ./install.sh
+		sudo dnf remove sbcl -y
 	    fi
-
-	    if [[ ! -d sbcl ]]; then
-		git clone git://git.code.sf.net/p/sbcl/sbcl
-	    fi
-
-	    cd sbcl && git pull --quiet && ./clean.sh && ./make.sh
-
-	    (
-		cd ./doc/manual/
-		make clean && make
-		sudo dnf remove texinfo-tex -y
-	    )
-
-	    sudo ./install.sh
-	    sudo dnf remove sbcl -y
 
 	) >/dev/null 2>&1 &
 
@@ -64,30 +77,43 @@ case "$input" in
 
 	# build and install latest mailutils
 	(
-	    cd ..
+	    get-current-version() {
+		git -c 'versionsort.suffix=' \
+		    ls-remote --tags --sort='v:refname' \
+		    "https://git.savannah.gnu.org/git/mailutils.git" \
+		    command grep -E '/release-[0-9]+[^\^\{\}]*$' \
+		    | tail -1 \
+		    | sed -E 's,(.*-)(.*$),\2,g'
+	    }
 
-	    src="https://ftp.gnu.org/gnu/mailutils/mailutils-latest.tar.xz"
-	    archive="${src##*/}"
-	    dir="${xz%-*}"
+	    mailutils_git_version="$(get-current-version)"
+	    mailutils_installed_version="$(command mailutils --version | head -1 | cut -d ')' -f2)"
 
-	    if [[ -d "$dir" ]]; then
-		sudo rm -rf "$dir"
+	    if [[ "$mailutils_installed_version" != "$mailutils_git_version" ]]; then
+		cd ..
+		src="https://ftp.gnu.org/gnu/mailutils/mailutils-latest.tar.xz"
+		archive="${src##*/}"
+		dir_name="${archive%-*}"
+
+		if [[ -d "$dir" ]]; then
+		    sudo rm -rf "$dir"
+		fi
+
+		wget -q "$src"
+		tmp_name="$(tar -tJf "$archive" | head -1 | tr -d '/')"
+		tar -xJf "$archive"
+		mv "$tmp_name" "$dir_name"
+
+		(
+		    cd "$dir"
+		    ./configure
+		    make -j "$(nproc)"
+		    sudo make uninstall
+		    sudo make install
+		)
+
+		rm "$archive"
 	    fi
-
-	    wget -q "$src"
-	    tmp="$(tar -tJf "$archive" | head -1 | tr -d '/')"
-	    tar -xJf "$archive"
-	    mv "$tmp" "$dir"
-
-	    (
-		cd "$dir"
-		./configure
-		make -j "$(nproc)"
-		sudo make uninstall
-		sudo make install
-	    )
-
-	    rm "$archive"
 
 	) >/dev/null 2>&1 &
 
@@ -175,54 +201,52 @@ case "$input" in
 	done
 
 	# configure the build
+	flags_common=(
+	    --without-xim
+	    --without-gconf
+	    --without-gsettings
+	    --enable-acl
+	    --enable-year2038
+	    --with-sqlite3
+	    --with-mailutils
+	    --with-wide-int
+	    --with-modules
+	    --with-libsystemd
+	    --with-tree-sitter
+	    --with-threads
+	    --with-json
+	    --with-zlib
+	    --with-selinux
+	    --with-gnutls
+	    --with-file-notification=yes
+	    --with-gameuser=:games
+	    --enable-check-lisp-object-type
+	    --with-native-compilation=aot
+	)
+
+	flags_nox=(
+	    --without-all
+	    --without-x
+	)
+
+	flags_x11=(
+	    --with-x-toolkit=no
+	    --with-cairo
+	)
+
+	flags_pgtk=(
+	    --with-pgtk
+	)
+
 	case "$input" in
 	    --nox)
-		./configure \
-		    --without-all \
-		    --without-x \
-		    --enable-acl \
-		    --enable-year2038 \
-		    --with-sqlite3 \
-		    --with-mailutils \
-		    --with-wide-int \
-		    --with-modules \
-		    --with-libsystemd \
-		    --with-tree-sitter \
-		    --with-threads \
-		    --with-json \
-		    --with-zlib \
-		    --with-selinux \
-		    --with-gnutls \
-		    --with-file-notification=yes \
-		    --with-gameuser=:games \
-		    --enable-check-lisp-object-type \
-		    --with-native-compilation=aot \
-		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
+		./configure "${flags_common[@]}" "${flags_nox[@]}" PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --x11)
-		./configure \
-		    --with-x-toolkit=no \
-		    --with-mailutils \
-		    --with-wide-int \
-		    --with-tree-sitter \
-		    --with-cairo \
-		    --without-gconf \
-		    --without-gsettings \
-		    --with-gameuser=:games \
-		    --enable-check-lisp-object-type \
-		    --with-native-compilation=aot \
-		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
+		./configure "${flags_common[@]}" "${flags_x11[@]}" PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --pgtk)
-		./configure \
-		    --with-pgtk \
-		    --with-mailutils \
-		    --with-wide-int \
-		    --with-tree-sitter \
-		    --with-gameuser=:games \
-		    --enable-check-lisp-object-type \
-		    --with-native-compilation=aot \
-		    PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
+		./configure "${flags_common[@]}" "${flags_pgtk[]}" PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    *)
 		_usage
