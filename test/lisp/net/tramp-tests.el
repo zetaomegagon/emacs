@@ -3811,7 +3811,7 @@ This tests also `access-file', `file-readable-p',
 	    (should (eq (file-attribute-type attr) t)))
 
 	;; Cleanup.
-	(ignore-errors (delete-directory tmp-name1))
+	(ignore-errors (delete-directory tmp-name1 'recursive))
 	(ignore-errors (delete-file tmp-name1))
 	(ignore-errors (delete-file tmp-name2))))))
 
@@ -6347,6 +6347,8 @@ INPUT, if non-nil, is a string sent to the process."
       ;; Cleanup.
       (ignore-errors (delete-file tmp-name)))))
 
+(tramp--test-deftest-direct-async-process tramp-test35-exec-path)
+
 ;; This test is inspired by Bug#33781.
 (ert-deftest tramp-test35-remote-path ()
   "Check loooong `tramp-remote-path'."
@@ -6360,6 +6362,8 @@ INPUT, if non-nil, is a string sent to the process."
          (tramp-remote-path tramp-remote-path)
 	 (orig-tramp-remote-path tramp-remote-path)
 	 path)
+    ;; The "flatpak" method modifies `tramp-remote-path'.
+    (skip-unless (not (tramp-compat-connection-local-p tramp-remote-path)))
     (unwind-protect
 	(progn
           ;; Non existing directories are removed.
@@ -6408,6 +6412,8 @@ INPUT, if non-nil, is a string sent to the process."
       (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
       (setq tramp-remote-path orig-tramp-remote-path)
       (ignore-errors (delete-directory tmp-name 'recursive)))))
+
+(tramp--test-deftest-direct-async-process tramp-test35-remote-path)
 
 (ert-deftest tramp-test36-vc-registered ()
   "Check `vc-registered'."
