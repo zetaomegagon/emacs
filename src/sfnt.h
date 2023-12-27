@@ -1455,6 +1455,7 @@ struct sfnt_post_table
 
 
 #define SFNT_CEIL_FIXED(fixed)	(((fixed) + 0177777) & 037777600000)
+#define SFNT_ROUND_FIXED(fixed) (((fixed) + 0100000) & 037777600000)
 #define SFNT_FLOOR_FIXED(fixed) ((fixed) & 037777600000)
 
 
@@ -2102,7 +2103,7 @@ extern const char *sfnt_interpret_control_value_program (PROTOTYPE);
 
 #undef PROTOTYPE
 
-#define PROTOTYPE struct sfnt_instructed_outline *
+#define PROTOTYPE struct sfnt_instructed_outline *, sfnt_fixed *
 
 extern struct sfnt_glyph_outline *sfnt_build_instructed_outline (PROTOTYPE);
 

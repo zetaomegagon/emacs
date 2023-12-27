@@ -293,7 +293,8 @@ chosen (interactively or automatically)."
                                      '(("marksman" "server")
                                        ("vscode-markdown-language-server" "--stdio"))))
                                 (graphviz-dot-mode . ("dot-language-server" "--stdio"))
-                                (terraform-mode . ("terraform-ls" "serve")))
+                                (terraform-mode . ("terraform-ls" "serve"))
+                                ((uiua-ts-mode uiua-mode) . ("uiua" "lsp")))
   "How the command `eglot' guesses the server to start.
 An association list of (MAJOR-MODE . CONTACT) pairs.  MAJOR-MODE
 identifies the buffers that are to be managed by a specific
@@ -1289,9 +1290,8 @@ be guessed."
             guess)))
     (list managed-modes (eglot--current-project) class contact language-ids)))
 
-(defvar eglot-lsp-context)
-(put 'eglot-lsp-context 'variable-documentation
-     "Dynamically non-nil when searching for projects in LSP context.")
+(defvar eglot-lsp-context nil
+  "Dynamically non-nil when searching for projects in LSP context.")
 
 (defun eglot--current-project ()
   "Return a project object for Eglot's LSP purposes.
@@ -3031,6 +3031,7 @@ for which LSP on-type-formatting should be requested."
     (let* ((server (eglot--current-server-or-lose))
            (bounds (or (bounds-of-thing-at-point 'symbol)
                        (cons (point) (point))))
+           (bounds-string (buffer-substring (car bounds) (cdr bounds)))
            (sort-completions
             (lambda (completions)
               (cl-sort completions
@@ -3213,9 +3214,10 @@ for which LSP on-type-formatting should be requested."
                         ;; Revert buffer back to state when the edit
                         ;; was obtained from server. If a `proxy'
                         ;; "bar" was obtained from a buffer with
-                        ;; "foo.b", the LSP edit applies to that'
+                        ;; "foo.b", the LSP edit applies to that
                         ;; state, _not_ the current "foo.bar".
                         (delete-region orig-pos (point))
+                        (insert (substring bounds-string (- orig-pos (car bounds))))
                         (eglot--dbind ((TextEdit) range newText) textEdit
                           (pcase-let ((`(,beg . ,end)
                                        (eglot-range-region range)))
