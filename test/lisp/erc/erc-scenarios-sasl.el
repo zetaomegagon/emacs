@@ -1,6 +1,6 @@
 ;;; erc-scenarios-sasl.el --- SASL tests for ERC -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -151,6 +151,7 @@
        (erc-sasl-mechanism 'plain)
        (erc--warnings-buffer-name  "*ERC test warnings*")
        (warnings-buffer (get-buffer-create erc--warnings-buffer-name))
+       (inhibit-message noninteractive)
        (expect (erc-d-t-make-expecter)))
 
     (with-current-buffer (erc :server "127.0.0.1"

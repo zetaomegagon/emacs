@@ -1,6 +1,6 @@
 ;;; recentf.el --- keep track of recently opened files  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: David Ponce <david@dponce.com>
 ;; Created: July 19 1999
@@ -810,7 +810,7 @@ Filenames are relative to the `default-directory'."
     ("C/C++ files (%d)" ,(rx nonl "."
                              (or "c" "cc" "cpp" "h" "hpp" "cxx" "hxx")
                              eos))
-    ("Python files (%d" ,(rx nonl ".py" eos))
+    ("Python files (%d)" ,(rx nonl ".py" eos))
     ("Java files (%d)" ,(rx nonl ".java" eos))
     )
   "List of rules used by `recentf-arrange-by-rule' to build sub-menus.

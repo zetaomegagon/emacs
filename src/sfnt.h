@@ -1,6 +1,6 @@
 /* sfnt format font support for GNU Emacs.
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1524,11 +1524,10 @@ extern struct sfnt_raster *sfnt_raster_glyph_outline_exact (PROTOTYPE);
 extern struct sfnt_hmtx_table *sfnt_read_hmtx_table (PROTOTYPE);
 #undef PROTOTYPE
 
-extern int sfnt_lookup_glyph_metrics (sfnt_glyph, int,
+extern int sfnt_lookup_glyph_metrics (sfnt_glyph,
 				      struct sfnt_glyph_metrics *,
 				      struct sfnt_hmtx_table *,
 				      struct sfnt_hhea_table *,
-				      struct sfnt_head_table *,
 				      struct sfnt_maxp_table *);
 
 extern void sfnt_scale_metrics (struct sfnt_glyph_metrics *,
