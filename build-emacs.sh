@@ -58,7 +58,7 @@ case "$input" in
 		    git clone git://git.code.sf.net/p/sbcl/sbcl
 		fi
 
-		cd sbcl && git pull --quiet && ./clean.sh && ./make.sh
+		cd sbcl && git pull --quiet && ./clean.sh && ./make.sh "$(which sbcl) --no-userinit --no-sysinit"
 
 		(
 		    cd ./doc/manual/
@@ -81,9 +81,9 @@ case "$input" in
 		git -c 'versionsort.suffix=' \
 		    ls-remote --tags --sort='v:refname' \
 		    "https://git.savannah.gnu.org/git/mailutils.git" \
-		    command grep -E '/release-[0-9]+[^\^\{\}]*$' \
+		    | command grep -E '/release-[0-9]+[^\^\{\}]*$' \
 		    | tail -1 \
-		    | sed -E 's,(.*-)(.*$),\2,g'
+		    | sed -E 's,(.*-)(.*)$,\2,g'
 	    }
 
 	    mailutils_git_version="$(get-current-version)"
@@ -246,7 +246,7 @@ case "$input" in
 		./configure "${flags_common[@]}" "${flags_x11[@]}" PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    --pgtk)
-		./configure "${flags_common[@]}" "${flags_pgtk[]}" PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
+		./configure "${flags_common[@]}" "${flags_pgtk[@]}" PKG_CONFIG_PATH='/usr/local/lib/pkgconfig'
 		;;
 	    *)
 		_usage
