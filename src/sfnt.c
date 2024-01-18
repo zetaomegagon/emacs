@@ -1937,8 +1937,11 @@ sfnt_read_simple_glyph (struct sfnt_glyph *glyph,
      simple->instructions comes one word past number_of_contours,
      because end_pts_of_contours also contains the instruction
      length.  */
-  simple->instructions = (uint8_t *) (simple->end_pts_of_contours
-				      + glyph->number_of_contours + 1);
+
+  simple->x_coordinates = (int16_t *) (simple->end_pts_of_contours
+				       + glyph->number_of_contours + 1);
+  simple->y_coordinates = simple->x_coordinates + number_of_points;
+  simple->instructions = (uint8_t *) (simple->y_coordinates + number_of_points);
   simple->flags = simple->instructions + simple->instruction_length;
 
   /* Read instructions into the glyph.  */
@@ -2022,7 +2025,6 @@ sfnt_read_simple_glyph (struct sfnt_glyph *glyph,
 
   /* Now that the flags have been decoded, start decoding the
      vectors.  */
-  simple->x_coordinates = (int16_t *) (simple->flags + number_of_points);
   vec_start = flags_start;
   i = 0;
   x = 0;
@@ -2080,7 +2082,6 @@ sfnt_read_simple_glyph (struct sfnt_glyph *glyph,
      pointer to the flags for the current vector.  */
   flags_start = simple->flags;
   y = 0;
-  simple->y_coordinates = simple->x_coordinates + i;
   i = 0;
 
   while (i < number_of_points)
@@ -5473,8 +5474,6 @@ be as well.  */
       next = next->next;
       xfree (last);
     }
-
-#undef ONE_PIXEL
 }
 
 /* Apply winding rule to the coverage value VALUE.  Convert VALUE to a
@@ -6195,7 +6194,7 @@ sfnt_read_ttc_header (int fd)
   size = (SFNT_ENDOF (struct sfnt_ttc_header, ul_dsig_offset,
 		      uint32_t)
 	  - offsetof (struct sfnt_ttc_header, ul_dsig_tag));
-  rc = read (fd, &ttc->ul_dsig_offset, size);
+  rc = read (fd, &ttc->ul_dsig_tag, size);
   if (rc == -1 || rc < size)
     {
       xfree (ttc);
@@ -6944,7 +6943,7 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
   {						\
     int16_t word;				\
 						\
-    word = (((int8_t) high) << 8 | low);	\
+    word = (((uint8_t) high) << 8 | low);	\
     PUSH_UNCHECKED (word);			\
   }						\
 
@@ -7024,14 +7023,18 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
 
 #define SLOOP()					\
   {						\
-    uint32_t loop;				\
+    int32_t loop;				\
 						\
     loop = POP ();				\
 						\
-    if (!loop)					\
-      TRAP ("loop set to 0");			\
+    if (loop < 0)				\
+      TRAP ("loop set to invalid value");	\
 						\
-    interpreter->state.loop = loop;		\
+    /* N.B. loop might be greater than 65535,	\
+       but no reasonable font should define	\
+       such values.  */				\
+    interpreter->state.loop			\
+      = MIN (65535, loop);			\
   }
 
 #define SMD()					\
@@ -8570,8 +8573,11 @@ sfnt_address_zp2 (struct sfnt_interpreter *interpreter,
   if (number >= interpreter->glyph_zone->num_points)
     TRAP ("address to ZP2 (glyph zone) out of bounds");
 
-  *x = interpreter->glyph_zone->x_current[number];
-  *y = interpreter->glyph_zone->y_current[number];
+  if (x && y)
+    {
+      *x = interpreter->glyph_zone->x_current[number];
+      *y = interpreter->glyph_zone->y_current[number];
+    }
 
   if (x_org && y_org)
     {
@@ -8618,8 +8624,11 @@ sfnt_address_zp1 (struct sfnt_interpreter *interpreter,
   if (number >= interpreter->glyph_zone->num_points)
     TRAP ("address to ZP1 (glyph zone) out of bounds");
 
-  *x = interpreter->glyph_zone->x_current[number];
-  *y = interpreter->glyph_zone->y_current[number];
+  if (x && y)
+    {
+      *x = interpreter->glyph_zone->x_current[number];
+      *y = interpreter->glyph_zone->y_current[number];
+    }
 
   if (x_org && y_org)
     {
@@ -8666,8 +8675,11 @@ sfnt_address_zp0 (struct sfnt_interpreter *interpreter,
   if (number >= interpreter->glyph_zone->num_points)
     TRAP ("address to ZP0 (glyph zone) out of bounds");
 
-  *x = interpreter->glyph_zone->x_current[number];
-  *y = interpreter->glyph_zone->y_current[number];
+  if (x && y)
+    {
+      *x = interpreter->glyph_zone->x_current[number];
+      *y = interpreter->glyph_zone->y_current[number];
+    }
 
   if (x_org && y_org)
     {
@@ -8954,7 +8966,7 @@ sfnt_dual_project_vector (struct sfnt_interpreter *interpreter,
 
 static void
 sfnt_interpret_fliprgoff (struct sfnt_interpreter *interpreter,
-			  uint32_t l, uint32_t h)
+			  uint32_t h, uint32_t l)
 {
   uint32_t i;
 
@@ -8964,7 +8976,7 @@ sfnt_interpret_fliprgoff (struct sfnt_interpreter *interpreter,
   if (!interpreter->state.zp0)
     return;
 
-  for (i = l; i < h; ++i)
+  for (i = l; i <= h; ++i)
     interpreter->glyph_zone->flags[i] &= ~01;
 }
 
@@ -8973,7 +8985,7 @@ sfnt_interpret_fliprgoff (struct sfnt_interpreter *interpreter,
 
 static void
 sfnt_interpret_fliprgon (struct sfnt_interpreter *interpreter,
-			 uint32_t l, uint32_t h)
+			 uint32_t h, uint32_t l)
 {
   uint32_t i;
 
@@ -8983,8 +8995,8 @@ sfnt_interpret_fliprgon (struct sfnt_interpreter *interpreter,
   if (!interpreter->state.zp0)
     return;
 
-  for (i = l; i < h; ++i)
-    interpreter->glyph_zone->flags[i] |= ~01;
+  for (i = l; i <= h; ++i)
+    interpreter->glyph_zone->flags[i] |= 01;
 }
 
 /* Interpret a FLIPPT instruction in INTERPRETER.  For loop times, pop
@@ -9628,6 +9640,8 @@ sfnt_interpret_ip (struct sfnt_interpreter *interpreter)
   sfnt_f26dot6 new_distance;
   uint32_t p;
   sfnt_f26dot6 x, y, original_x, original_y;
+  struct sfnt_interpreter_zone *zone;
+  bool scale;
 
   /* First load both reference points.  */
   sfnt_address_zp0 (interpreter, interpreter->state.rp1,
@@ -9637,6 +9651,57 @@ sfnt_interpret_ip (struct sfnt_interpreter *interpreter)
 		    &rp2x, &rp2y, &rp2_original_x,
 		    &rp2_original_y);
 
+  /* If RP1, RP2, and all arguments all fall within the glyph zone and
+     a simple glyph is loaded, replace their original coordinates as
+     loaded here with coordinates from the unscaled glyph outline.  */
+
+  zone = interpreter->glyph_zone;
+  scale = false;
+
+  if (zone && zone->simple
+      && interpreter->state.zp0
+      && interpreter->state.zp1
+      && interpreter->state.zp2)
+    {
+      p = interpreter->state.rp1;
+
+      /* If P is a phantom point... */
+      if (p >= zone->simple->number_of_points)
+	{
+	  /* ...scale the phantom point to the size of the original
+	     outline.  */
+	  rp1_original_x = sfnt_div_fixed (rp1_original_x,
+					   interpreter->scale);
+	  rp1_original_y = sfnt_div_fixed (rp1_original_y,
+					   interpreter->scale);
+	}
+      else
+	{
+	  rp1_original_x = zone->simple->x_coordinates[p];
+	  rp1_original_y = zone->simple->y_coordinates[p];
+	}
+
+      p = interpreter->state.rp2;
+
+      /* If P is a phantom point... */
+      if (p >= zone->simple->number_of_points)
+	{
+	  /* ...scale the phantom point to the size of the original
+	     outline.  */
+	  rp2_original_x = sfnt_div_fixed (rp2_original_x,
+					   interpreter->scale);
+	  rp2_original_y = sfnt_div_fixed (rp2_original_y,
+					   interpreter->scale);
+	}
+      else
+	{
+	  rp2_original_x = zone->simple->x_coordinates[p];
+	  rp2_original_y = zone->simple->y_coordinates[p];
+	}
+
+      scale = true;
+    }
+
   /* Get the original distance between of RP1 and RP2 measured
      relative to the dual projection vector.  */
   range = sfnt_dual_project_vector (interpreter,
@@ -9644,6 +9709,9 @@ sfnt_interpret_ip (struct sfnt_interpreter *interpreter)
 					      rp1_original_x),
 				    sfnt_sub (rp2_original_y,
 					      rp1_original_y));
+
+  if (scale)
+    range = sfnt_mul_fixed_round (range, interpreter->scale);
 
   /* Get the new distance.  */
   new_range = sfnt_dual_project_vector (interpreter,
@@ -9658,6 +9726,25 @@ sfnt_interpret_ip (struct sfnt_interpreter *interpreter)
       sfnt_address_zp2 (interpreter, p, &x, &y, &original_x,
 			&original_y);
 
+      if (scale)
+	{
+	  /* If P is a phantom point... */
+	  if (p >= zone->simple->number_of_points)
+	    {
+	      /* ...scale the phantom point to the size of the original
+		 outline.  */
+	      original_x = sfnt_div_fixed (original_x,
+					   interpreter->scale);
+	      original_y = sfnt_div_fixed (original_y,
+					   interpreter->scale);
+	    }
+	  else
+	    {
+	      original_x = zone->simple->x_coordinates[p];
+	      original_y = zone->simple->y_coordinates[p];
+	    }
+	}
+
       /* Now compute the old distance from this point to rp1.  */
       org_distance
 	= sfnt_dual_project_vector (interpreter,
@@ -9665,6 +9752,10 @@ sfnt_interpret_ip (struct sfnt_interpreter *interpreter)
 					      rp1_original_x),
 				    sfnt_sub (original_y,
 					      rp1_original_y));
+
+      if (scale)
+	org_distance = sfnt_mul_fixed_round (org_distance,
+					     interpreter->scale);
 
       /* And the current distance from this point to rp1, so
          how much to move can be determined.  */
@@ -10570,6 +10661,7 @@ sfnt_dot_fix_14 (int32_t ax, int32_t ay, int bx, int by)
   return (int32_t) (((uint32_t) hi << 18) | (l >> 14));
 #else
   int64_t xx, yy;
+  int64_t temp;
 
   xx = (int64_t) ax * bx;
   yy = (int64_t) ay * by;
@@ -10578,7 +10670,12 @@ sfnt_dot_fix_14 (int32_t ax, int32_t ay, int bx, int by)
   yy = xx >> 63;
   xx += 0x2000 + yy;
 
-  return (int32_t) (xx / (1 << 14));
+  /* TrueType fonts rely on "division" here truncating towards
+     negative infinity, so compute the arithmetic right shift in place
+     of division.  */
+  temp = -(xx < 0);
+  temp = (temp ^ xx) >> 14 ^ temp;
+  return (int32_t) (temp);
 #endif
 }
 
@@ -11412,6 +11509,64 @@ sfnt_interpret_mirp (struct sfnt_interpreter *interpreter,
     interpreter->state.rp0 = p;
 }
 
+/* Return the projection of the two points P1 and P2's original values
+   along the dual projection vector, with P1 inside ZP0 and P2 inside
+   ZP1.  If this zone is the glyph zone and the outline positions of
+   those points are directly accessible, project their original
+   positions and scale the result with rounding, so as to prevent
+   rounding-introduced inaccuracies.
+
+   The scenario where such inaccuracies are significant is generally
+   where an Italic glyph is being instructed at small PPEM sizes,
+   during which a point moved by MDAP[rN] is within 1/64th of a
+   pixel's distance from a point on the grid, yet the measurements
+   taken between such a point and the reference point against which
+   the distance to move is computed is such that the position of the
+   point after applying their rounded values differs by one grid
+   coordinate from the font designer's intentions, either exaggerating
+   or neutralizing the slant of the stem to which it belongs.
+
+   This behavior applies only to MDRP (which see), although a similar
+   strategy is also applied while interpreting IP instructions.  */
+
+static sfnt_f26dot6
+sfnt_project_zp1_zp0_org (struct sfnt_interpreter *interpreter,
+			  uint32_t p1, uint32_t p2)
+{
+  sfnt_fword x1, y1, x2, y2, projection;
+  struct sfnt_simple_glyph *simple;
+  sfnt_f26dot6 org_x1, org_y1, org_x2, org_y2;
+
+  /* Addressing the twilight zone, perhaps only partially.  */
+  if (!interpreter->state.zp0
+      || !interpreter->state.zp1
+      /* Not interpreting a glyph.  */
+      || !interpreter->glyph_zone
+      /* Not interpreting a simple glyph.  */
+      || !interpreter->glyph_zone->simple
+      /* P1 or P2 are phantom points.  */
+      || p1 >= interpreter->glyph_zone->simple->number_of_points
+      || p2 >= interpreter->glyph_zone->simple->number_of_points)
+    goto project_normally;
+
+  simple = interpreter->glyph_zone->simple;
+  x1 = simple->x_coordinates[p1];
+  y1 = simple->y_coordinates[p1];
+  x2 = simple->x_coordinates[p2];
+  y2 = simple->y_coordinates[p2];
+
+  /* Compute the projection.  */
+  projection = DUAL_PROJECT (x1 - x2, y1 - y2);
+
+  /* Return the projection, scaled with rounding.  */
+  return sfnt_mul_fixed_round (projection, interpreter->scale);
+
+ project_normally:
+  sfnt_address_zp1 (interpreter, p1, NULL, NULL, &org_x1, &org_y1);
+  sfnt_address_zp0 (interpreter, p2, NULL, NULL, &org_x2, &org_y2);
+  return DUAL_PROJECT (org_x1 - org_x2, org_y1 - org_y2);
+}
+
 /* Interpret an MDRP instruction with the specified OPCODE in
    INTERPRETER.  Pop a point in ZP1, and move the point until its
    distance from RP0 in ZP0 is the same as in the original outline.
@@ -11428,20 +11583,19 @@ sfnt_interpret_mdrp (struct sfnt_interpreter *interpreter,
   uint32_t p;
   sfnt_f26dot6 distance, applied;
   sfnt_f26dot6 current_projection;
-  sfnt_f26dot6 x, y, org_x, org_y;
-  sfnt_f26dot6 rx, ry, org_rx, org_ry;
+  sfnt_f26dot6 x, y, rx, ry;
 
   /* Point number.  */
   p = POP ();
 
   /* Load the points.  */
-  sfnt_address_zp1 (interpreter, p, &x, &y, &org_x, &org_y);
+  sfnt_address_zp1 (interpreter, p, &x, &y, NULL, NULL);
   sfnt_address_zp0 (interpreter, interpreter->state.rp0,
-		    &rx, &ry, &org_rx, &org_ry);
+		    &rx, &ry, NULL, NULL);
 
   /* Calculate the distance between P and rp0 prior to hinting.  */
-  distance = DUAL_PROJECT (org_x - org_rx,
-			   org_y - org_ry);
+  distance = sfnt_project_zp1_zp0_org (interpreter, p,
+				       interpreter->state.rp0);
 
   /* Calculate the distance between P and rp0 as of now in the hinting
      process.  */
@@ -12478,6 +12632,7 @@ sfnt_interpret_simple_glyph (struct sfnt_glyph *glyph,
   zone->y_current = zone->y_points + zone->num_points;
   zone->flags = (unsigned char *) (zone->y_current
 				   + zone->num_points);
+  zone->simple = glyph->simple;
 
   /* Load x_points and x_current.  */
   for (i = 0; i < glyph->simple->number_of_points; ++i)
@@ -12776,6 +12931,7 @@ sfnt_interpret_compound_glyph_2 (struct sfnt_glyph *glyph,
   zone->y_current = zone->y_points + zone->num_points;
   zone->flags = (unsigned char *) (zone->y_current
 				   + zone->num_points);
+  zone->simple = NULL;
 
   /* Copy and renumber all contour end points to start from
      base_index.  */
@@ -14191,7 +14347,7 @@ sfnt_read_fvar_table (int fd, struct sfnt_offset_subtable *subtable)
       || INT_ADD_WRAPV (min_bytes, temp, &min_bytes))
     goto bail;
 
-  pad = alignof (struct sfnt_variation_axis);
+  pad = alignof (struct sfnt_instance);
   pad -= min_bytes & (pad - 1);
 
   if (INT_ADD_WRAPV (min_bytes, pad, &min_bytes))
@@ -18459,13 +18615,13 @@ static struct sfnt_interpreter_test all_tests[] =
       "SLOOP",
       /* PUSHB[0] 2
 	 SLOOP[]
-	 PUSHB[0] 0
+	 PUSHW[0] 255 255 (-1)
 	 SLOOP[] */
       (unsigned char []) { 0xb0, 2,
 			   0x17,
-			   0xb0, 0,
+			   0xb8, 255, 255,
 			   0x17, },
-      6,
+      7,
       NULL,
       sfnt_check_sloop,
     },
@@ -20258,7 +20414,8 @@ sfnt_identify_instruction (struct sfnt_interpreter *interpreter)
       return buffer;
     }
 
-  if (exec_fpgm->instructions
+  if (exec_fpgm
+      && exec_fpgm->instructions
       && where >= exec_fpgm->instructions
       && where < (exec_fpgm->instructions
 		  + exec_fpgm->num_instructions))
@@ -20529,6 +20686,13 @@ main (int argc, char **argv)
       if (!interpreter)
 	abort ();
 
+      if (getenv ("SFNT_VERBOSE"))
+	{
+	  interpreter->run_hook = sfnt_verbose;
+	  interpreter->push_hook = sfnt_push_hook;
+	  interpreter->pop_hook = sfnt_pop_hook;
+	}
+
       for (i = 0; i < ARRAYELTS (all_tests); ++i)
 	sfnt_run_interpreter_test (&all_tests[i], interpreter);
 
@@ -20631,8 +20795,8 @@ main (int argc, char **argv)
       return 1;
     }
 
-#define FANCY_PPEM 44
-#define EASY_PPEM  44
+#define FANCY_PPEM 14
+#define EASY_PPEM  14
 
   interpreter = NULL;
   head = sfnt_read_head_table (fd, font);
@@ -21023,6 +21187,16 @@ main (int argc, char **argv)
       interpreter = sfnt_make_interpreter (maxp, cvt, head,
 					   fvar, FANCY_PPEM,
 					   FANCY_PPEM);
+
+      if (getenv ("SFNT_DEBUG"))
+	interpreter->run_hook = sfnt_run_hook;
+      else if (getenv ("SFNT_VERBOSE"))
+	{
+	  interpreter->run_hook = sfnt_verbose;
+	  interpreter->push_hook = sfnt_push_hook;
+	  interpreter->pop_hook = sfnt_pop_hook;
+	}
+
       state = interpreter->state;
 
       if (instance && gvar)
@@ -21236,15 +21410,6 @@ main (int argc, char **argv)
 
 		  if (interpreter)
 		    {
-		      if (getenv ("SFNT_DEBUG"))
-			interpreter->run_hook = sfnt_run_hook;
-		      else if (getenv ("SFNT_VERBOSE"))
-			{
-			  interpreter->run_hook = sfnt_verbose;
-			  interpreter->push_hook = sfnt_push_hook;
-			  interpreter->pop_hook = sfnt_pop_hook;
-			}
-
 		      if (!sfnt_lookup_glyph_metrics (code, &metrics,
 						      hmtx, hhea, maxp))
 			{

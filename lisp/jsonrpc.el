@@ -4,7 +4,7 @@
 
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords: processes, languages, extensions
-;; Version: 1.0.23
+;; Version: 1.0.24
 ;; Package-Requires: ((emacs "25.2"))
 
 ;; This is a GNU ELPA :core package.  Avoid functionality that is not
@@ -782,7 +782,7 @@ Return the full continuation (ID SUCCESS-FN ERROR-FN TIMER)"
     (if deferred-spec (remhash deferred-spec defs))
     (when-let ((ass (assq id conts)))
       (cl-destructuring-bind (_ _ _ _ timer) ass
-        (cancel-timer timer))
+        (when timer (cancel-timer timer)))
       (setf conts (delete ass conts))
       ass)))
 
@@ -1003,16 +1003,17 @@ of the API instead.")
                                            (or method "")
                                            (if id (format "[%s]" id) "")))))
                (msg
-                (cond ((eq format 'full)
-                       (format "%s%s\n" preamble (or json log-text)))
-                      ((eq format 'short)
-                       (format "%s%s\n" preamble (or log-text "")))
-                      (t
-                       (format "%s%s" preamble
-                               (or (and foreign-message
-                                        (concat "\n" (pp-to-string
-                                                      foreign-message)))
-                                   (concat log-text "\n")))))))
+                (pcase format
+                  ('full  (format "%s%s\n" preamble (or json log-text)))
+                  ('short (format "%s%s\n" preamble (or log-text "")))
+                  (_
+                   (format "%s%s" preamble
+                           (or (and foreign-message
+                                    (let ((lisp-indent-function ;bug#68072
+                                           #'lisp-indent-function))
+                                      (concat "\n" (pp-to-string
+                                                    foreign-message))))
+                               (concat log-text "\n")))))))
           (goto-char (point-max))
           ;; XXX: could use `run-at-time' to delay server logs
           ;; slightly to play nice with verbose servers' stderr.

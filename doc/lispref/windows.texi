@@ -2629,11 +2629,15 @@ default value is an empty display action, i.e., @w{@code{(nil . nil)}}.
 
 @defopt display-buffer-alist
 The value of this option is an alist mapping conditions to display
-actions.  Each condition is passed to @code{buffer-match-p}, along
-with the buffer name and the @var{action} argument passed to
-@code{display-buffer}.  If it returns a non-@code{nil} value, then
-@code{display-buffer} uses the corresponding display action to display
-the buffer.
+actions.  Each condition is passed to @code{buffer-match-p}
+(@pxref{Buffer List}), along with the buffer name and the @var{action}
+argument passed to @code{display-buffer}.  If it returns a
+non-@code{nil} value, then @code{display-buffer} uses the
+corresponding display action to display the buffer.  Caveat: if you
+use @code{derived-mode} or @code{major-mode} as condition,
+@code{buffer-match-p} could fail to report a match if
+@code{display-buffer} is called before the major mode of the buffer is
+set.
 @end defopt
 
 @defopt display-buffer-base-action
@@ -3340,6 +3344,16 @@ It is called @emph{after} the buffer is displayed, and @emph{before}
 the entries @code{window-height}, @code{window-width} and
 @code{preserve-size} are applied that could resize the window to fit
 it to the inserted contents.
+
+@vindex post-command-select-window@r{, a buffer display action alist entry}
+@item post-command-select-window
+If the value is non-@code{nil}, the buffer displayed by @code{display-buffer}
+is selected after the current command is executed by running the hook
+@code{post-command-hook} (@pxref{Command Overview}).
+If the value is @code{nil}, the buffer selected by such functions as
+@code{pop-to-buffer} is deselected, and the window that was selected
+before calling this function will remain selected regardless of which
+windows were selected afterwards within this command.
 @end table
 
 By convention, the entries @code{window-height}, @code{window-width}
