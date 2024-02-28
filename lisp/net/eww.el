@@ -340,7 +340,7 @@ parameter, and should return the (possibly) transformed URL."
 (defun eww-suggested-uris nil
   "Return the list of URIs to suggest at the `eww' prompt.
 This list can be customized via `eww-suggest-uris'."
-  (let ((obseen (make-vector 42 0))
+  (let ((obseen (obarray-make 42))
 	(uris nil))
     (dolist (fun eww-suggest-uris)
       (let ((ret (funcall fun)))
@@ -437,7 +437,7 @@ For more information, see Info node `(eww) Top'."
    ((eq eww-retrieve-command 'sync)
     (let ((data-buffer (url-retrieve-synchronously url)))
       (with-current-buffer data-buffer
-        (apply #'eww-render nil url cbargs))))
+        (apply #'eww-render nil cbargs))))
    (t
     (let ((buffer (generate-new-buffer " *eww retrieve*"))
           (error-buffer (generate-new-buffer " *eww error*")))

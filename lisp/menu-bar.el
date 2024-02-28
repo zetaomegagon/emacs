@@ -1353,6 +1353,15 @@ mail status in mode line"))
                                   (frame-visible-p
                                    (symbol-value 'speedbar-frame))))))
 
+    (bindings--define-key menu [showhide-outline-minor-mode]
+      '(menu-item "Outlines" outline-minor-mode
+                  :help "Turn outline-minor-mode on/off"
+                  :visible (seq-some #'local-variable-p
+                                     '(outline-search-function
+                                       outline-regexp outline-level))
+                  :button (:toggle . (and (boundp 'outline-minor-mode)
+                                          outline-minor-mode))))
+
     (bindings--define-key menu [showhide-tab-line-mode]
       '(menu-item "Window Tab Line" global-tab-line-mode
                   :help "Turn window-local tab-lines on/off"
@@ -1437,6 +1446,14 @@ mail status in mode line"))
 
 (defvar menu-bar-line-wrapping-menu
   (let ((menu (make-sparse-keymap "Line Wrapping")))
+
+    (bindings--define-key menu [visual-wrap]
+      '(menu-item "Visual Wrap Prefix mode" visual-wrap-prefix-mode
+                  :help "Display continuation lines with visual context-dependent prefix"
+                  :visible (menu-bar-menu-frame-live-and-visible-p)
+                  :button (:toggle
+                           . (bound-and-true-p visual-wrap-prefix-mode))
+                  :enable t))
 
     (bindings--define-key menu [word-wrap]
       '(menu-item "Word Wrap (Visual Line mode)"

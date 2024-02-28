@@ -4151,6 +4151,8 @@ set_window_buffer (Lisp_Object window, Lisp_Object buffer,
 			     buffer);
       w->start_at_line_beg = false;
       w->force_start = false;
+      /* Flush the base_line cache since it applied to another buffer.  */
+      w->base_line_number = 0;
     }
 
   wset_redisplay (w);
@@ -5331,7 +5333,17 @@ resize_mini_window_apply (struct window *w, int delta)
   w->pixel_top = r->pixel_top + r->pixel_height;
   w->top_line = r->top_line + r->total_lines;
 
-  /* Enforce full redisplay of the frame.  */
+  /* Enforce full redisplay of the frame.  If f->redisplay is already
+     set, which it generally is in the wake of a ConfigureNotify
+     (frame resize) event, merely setting f->redisplay is insufficient
+     for redisplay_internal to continue redisplaying the frame, as
+     redisplay_internal cannot distinguish between f->redisplay set
+     before it calls redisplay_window and that after, so garbage the
+     frame as well.  */
+
+  if (f->redisplay)
+    SET_FRAME_GARBAGED (f);
+
   /* FIXME: Shouldn't some of the caller do it?  */
   fset_redisplay (f);
   adjust_frame_glyphs (f);
@@ -5368,7 +5380,14 @@ grow_mini_window (struct window *w, int delta)
       grow = call3 (Qwindow__resize_root_window_vertically,
 		    root, make_fixnum (- delta), Qt);
 
-      if (FIXNUMP (grow) && window_resize_check (r, false))
+      if (FIXNUMP (grow)
+	  /* It might be impossible to resize the window, in which case
+	     calling resize_mini_window_apply will set off an infinite
+	     loop where the redisplay cycle so forced returns to
+	     resize_mini_window, making endless attempts to expand the
+	     minibuffer window to this impossible size.  (bug#69140) */
+	  && XFIXNUM (grow) != 0
+	  && window_resize_check (r, false))
 	resize_mini_window_apply (w, -XFIXNUM (grow));
     }
 }

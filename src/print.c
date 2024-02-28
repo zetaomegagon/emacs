@@ -1285,15 +1285,9 @@ print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	{ /* Remove unnecessary objects, which appear only once in OBJ;
 	     that is, whose status is Qt.  */
 	  struct Lisp_Hash_Table *h = XHASH_TABLE (Vprint_number_table);
-	  ptrdiff_t i;
-
-	  for (i = 0; i < HASH_TABLE_SIZE (h); ++i)
-            {
-              Lisp_Object key =  HASH_KEY (h, i);
-	      if (!hash_unused_entry_key_p (key)
-		  && EQ (HASH_VALUE (h, i), Qt))
-	        Fremhash (key, Vprint_number_table);
-            }
+	  DOHASH (h, k, v)
+	    if (EQ (v, Qt))
+	      Fremhash (k, Vprint_number_table);
 	}
     }
 
@@ -1311,8 +1305,7 @@ print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	   || RECORDP (obj)))				   \
    || (! NILP (Vprint_gensym)				   \
        && SYMBOLP (obj)					   \
-       && !SYMBOL_INTERNED_P (obj)			   \
-       && !hash_unused_entry_key_p (obj)))
+       && !SYMBOL_INTERNED_P (obj)))
 
 /* The print preprocess stack, used to traverse data structures.  */
 
@@ -1398,6 +1391,9 @@ static void
 print_preprocess (Lisp_Object obj)
 {
   eassert (!NILP (Vprint_circle));
+  /* The ppstack may contain HASH_UNUSED_ENTRY_KEY which is an invalid
+     Lisp value.  Make sure that our filter stops us from traversing it.  */
+  eassert (!PRINT_CIRCLE_CANDIDATE_P (HASH_UNUSED_ENTRY_KEY));
   ptrdiff_t base_sp = ppstack.sp;
 
   for (;;)
@@ -1416,7 +1412,7 @@ print_preprocess (Lisp_Object obj)
 		  && SYMBOLP (obj)
 		  && !SYMBOL_INTERNED_P (obj)))
 	    { /* OBJ appears more than once.  Let's remember that.  */
-	      if (!FIXNUMP (num))
+	      if (SYMBOLP (num)) /* In practice, nil or t.  */
 		{
 		  print_number_index++;
 		  /* Negative number indicates it hasn't been printed yet.  */
@@ -1456,6 +1452,8 @@ print_preprocess (Lisp_Object obj)
 		    if (HASH_TABLE_P (obj))
 		      {
 			struct Lisp_Hash_Table *h = XHASH_TABLE (obj);
+			/* The values pushed here may include
+			   HASH_UNUSED_ENTRY_KEY; see top of this function.  */
 			pp_stack_push_values (h->key_and_value,
 					      2 * h->table_size);
 		      }
@@ -2080,6 +2078,16 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
       }
       return;
 
+    case PVEC_OBARRAY:
+      {
+	struct Lisp_Obarray *o = XOBARRAY (obj);
+	/* FIXME: Would it make sense to print the actual symbols (up to
+	   a limit)?  */
+	int i = sprintf (buf, "#<obarray n=%u>", o->count);
+	strout (buf, i, i, printcharfun);
+	return;
+      }
+
     /* Types handled earlier.  */
     case PVEC_NORMAL_VECTOR:
     case PVEC_RECORD:
@@ -2266,6 +2274,11 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	      strout (buf, len, len, printcharfun);
 	      goto next_obj;
 	    }
+	}
+      else if (STRINGP (num))
+	{
+	  strout (SSDATA (num), SCHARS (num), SBYTES (num), printcharfun);
+	  goto next_obj;
 	}
     }
 
@@ -2556,11 +2569,6 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	  goto next_obj;
 	case PVEC_SUB_CHAR_TABLE:
 	  {
-	    /* Make each lowest sub_char_table start a new line.
-	       Otherwise we'll make a line extremely long, which
-	       results in slow redisplay.  */
-	    if (XSUB_CHAR_TABLE (obj)->depth == 3)
-	      printchar ('\n', printcharfun);
 	    print_c_string ("#^^[", printcharfun);
 	    int n = sprintf (buf, "%d %d",
 			     XSUB_CHAR_TABLE (obj)->depth,
@@ -2666,7 +2674,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		    /* With the print-circle feature.  */
 		    Lisp_Object num = Fgethash (next, Vprint_number_table,
 						Qnil);
-		    if (FIXNUMP (num))
+		    if (!(NILP (num) || EQ (num, Qt)))
 		      {
 			print_c_string (" . ", printcharfun);
 			obj = next;
@@ -2930,7 +2938,10 @@ This variable should not be set with `setq'; bind it with a `let' instead.  */);
   DEFVAR_LISP ("print-number-table", Vprint_number_table,
 	       doc: /* A vector used internally to produce `#N=' labels and `#N#' references.
 The Lisp printer uses this vector to detect Lisp objects referenced more
-than once.
+than once.  If an entry contains a number, then the corresponding key is
+referenced more than once: a positive sign indicates that it's already been
+printed, and the absolute value indicates the number to use when printing.
+If an entry contains a string, that string is printed instead.
 
 When you bind `print-continuous-numbering' to t, you should probably
 also bind `print-number-table' to nil.  This ensures that the value of

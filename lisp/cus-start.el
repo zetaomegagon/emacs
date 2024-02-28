@@ -371,6 +371,7 @@ Leaving \"Default\" unchecked is equivalent with specifying a default of
 	     (auto-save-timeout auto-save (choice (const :tag "off" nil)
 						  (integer :format "%v")))
 	     (echo-keystrokes minibuffer number)
+             (echo-keystrokes-help minibuffer boolean "30.1")
 	     (polling-period keyboard float)
 	     (double-click-time mouse (restricted-sexp
 				       :match-alternatives (integerp 'nil 't)))
@@ -606,6 +607,8 @@ This should only be chosen under exceptional circumstances,
 since it could result in memory overflow and make Emacs crash."
 					      nil))
 			       "27.1")
+             ;; w32fns.c
+             (w32-follow-system-dark-mode display boolean "30.1")
 	     ;; window.c
 	     (temp-buffer-show-function windows (choice (const nil) function))
 	     (next-screen-context-lines windows integer)

@@ -42,6 +42,14 @@
 ;; - ideally we'd want (pcase s ((re RE1) E1) ((re RE2) E2)) to be able to
 ;;   generate a lex-style DFA to decide whether to run E1 or E2.
 
+;; While the first version was written before I knew about Racket's `match'
+;; construct, the second version was significantly influenced by it,
+;; so a good presentation of the underlying ideas can be found at:
+;;
+;;   Extensible Pattern Matching in an Extensible Language
+;;   Sam Tobin-Hochstadt, 2010
+;;   https://arxiv.org/abs/1106.2578
+
 ;;; Code:
 
 (require 'macroexp)
@@ -123,6 +131,8 @@ FUN in `pred' and `app' can take one of the forms:
      call it with one argument
   (F ARG1 .. ARGn)
      call F with ARG1..ARGn and EXPVAL as n+1'th argument
+  (F ARG1 .. _ .. ARGn)
+     call F, passing EXPVAL at the _ position.
 
 FUN, BOOLEXP, and subsequent PAT can refer to variables
 bound earlier in the pattern by a SYMBOL pattern.
@@ -155,8 +165,12 @@ Emacs Lisp manual for more information and examples."
         ;; (puthash (car cases) `(,exp ,cases ,@expansion) pcase--memoize-2)
         expansion))))
 
-(declare-function help-fns--signature "help-fns"
-                  (function doc real-def real-function buffer))
+(defconst pcase--find-macro-def-regexp "(pcase-defmacro[\s\t\n]+%s[\s\t\n]*(")
+
+(with-eval-after-load 'find-func
+  (defvar find-function-regexp-alist)
+  (add-to-list 'find-function-regexp-alist
+               `(pcase-macro . pcase--find-macro-def-regexp)))
 
 ;; FIXME: Obviously, this will collide with nadvice's use of
 ;; function-documentation if we happen to advise `pcase'.
@@ -166,9 +180,10 @@ Emacs Lisp manual for more information and examples."
 (defun pcase--make-docstring ()
   (let* ((main (documentation (symbol-function 'pcase) 'raw))
          (ud (help-split-fundoc main 'pcase)))
-    ;; So that eg emacs -Q -l cl-lib --eval "(documentation 'pcase)" works,
-    ;; where cl-lib is anything using pcase-defmacro.
     (require 'help-fns)
+    (declare-function help-fns-short-filename "help-fns" (filename))
+    (declare-function help-fns--signature "help-fns"
+                      (function doc real-def real-function buffer))
     (with-temp-buffer
       (insert (or (cdr ud) main))
       ;; Presentation Note: For conceptual continuity, we guarantee
@@ -189,11 +204,20 @@ Emacs Lisp manual for more information and examples."
           (let* ((pair (pop more))
                  (symbol (car pair))
                  (me (cdr pair))
-                 (doc (documentation me 'raw)))
+                 (doc (documentation me 'raw))
+                 (filename (find-lisp-object-file-name me 'defun)))
             (insert "\n\n-- ")
             (setq doc (help-fns--signature symbol doc me
                                            (indirect-function me)
                                            nil))
+            (when filename
+              (save-excursion
+                (forward-char -1)
+                (insert (format-message "  in `"))
+                (help-insert-xref-button (help-fns-short-filename filename)
+                                         'help-function-def symbol filename
+                                         'pcase-macro)
+                (insert (format-message "'."))))
             (insert "\n" (or doc "Not documented.")))))
       (let ((combined-doc (buffer-string)))
         (if ud (help-add-fundoc-usage combined-doc (car ud)) combined-doc)))))
@@ -261,8 +285,8 @@ As with `pcase-let', BINDINGS are of the form (PATTERN EXP), but the
 EXP in each binding in BINDINGS can use the results of the destructuring
 bindings that precede it in BINDINGS' order.
 
-Each EXP should match (i.e. be of compatible structure) to its
-respective PATTERN; a mismatch may signal an error or may go
+Each EXP should match its respective PATTERN (i.e. be of structure
+compatible to PATTERN); a mismatch may signal an error or may go
 undetected, binding variables to arbitrary values, such as nil."
   (declare (indent 1)
            (debug ((&rest (pcase-PAT &optional form)) body)))
@@ -283,8 +307,8 @@ All EXPs are evaluated first, and then used to perform destructuring
 bindings by matching each EXP against its respective PATTERN.  Then
 BODY is evaluated with those bindings in effect.
 
-Each EXP should match (i.e. be of compatible structure) to its
-respective PATTERN; a mismatch may signal an error or may go
+Each EXP should match its respective PATTERN (i.e. be of structure
+compatible to PATTERN); a mismatch may signal an error or may go
 undetected, binding variables to arbitrary values, such as nil."
   (declare (indent 1) (debug pcase-let*))
   (if (null (cdr bindings))
@@ -792,10 +816,10 @@ A and B can be one of:
                     #'compiled-function-p))))
         (pcase--mutually-exclusive-p (cadr upat) otherpred))
       '(:pcase--fail . nil))
-     ;; Since we turn (or 'a 'b 'c) into (pred (pcase--flip (memq '(a b c))))
+     ;; Since we turn (or 'a 'b 'c) into (pred (memq _ '(a b c)))
      ;; try and preserve the info we get from that memq test.
-     ((and (eq 'pcase--flip (car-safe (cadr upat)))
-           (memq (cadr (cadr upat)) '(memq member memql))
+     ((and (memq (car-safe (cadr upat)) '(memq member memql))
+           (eq (cadr (cadr upat)) '_)
            (eq 'quote (car-safe (nth 2 (cadr upat))))
            (eq 'quote (car-safe pat)))
       (let ((set (cadr (nth 2 (cadr upat)))))
@@ -843,7 +867,7 @@ A and B can be one of:
 
 (defmacro pcase--flip (fun arg1 arg2)
   "Helper function, used internally to avoid (funcall (lambda ...) ...)."
-  (declare (debug (sexp body)))
+  (declare (debug (sexp body)) (obsolete _ "30.1"))
   `(,fun ,arg2 ,arg1))
 
 (defun pcase--funcall (fun arg vars)
@@ -864,9 +888,13 @@ A and B can be one of:
                      (let ((newsym (gensym "x")))
                        (push (list newsym arg) env)
                        (setq arg newsym)))
-                   (if (or (functionp fun) (not (consp fun)))
-                       `(funcall #',fun ,arg)
-                     `(,@fun ,arg)))))
+                   (cond
+                    ((or (functionp fun) (not (consp fun)))
+                     `(funcall #',fun ,arg))
+                    ((memq '_ fun)
+                     (mapcar (lambda (x) (if (eq '_ x) arg x)) fun))
+                    (t
+                     `(,@fun ,arg))))))
       (if (null env)
           call
         ;; Let's not replace `vars' in `fun' since it's
@@ -927,7 +955,7 @@ Otherwise, it defers to REST which is a list of branches of the form
        ;; Yes, we can use `memql' (or `member')!
        ((> (length simples) 1)
         (pcase--u1 (cons `(match ,var
-                                 . (pred (pcase--flip ,mem-fun ',simples)))
+                                 . (pred (,mem-fun _ ',simples)))
                          (cdr matches))
                    code vars
                    (if (null others) rest
@@ -1074,12 +1102,13 @@ The predicate is the logical-AND of:
   (declare (debug (pcase-QPAT)))
   (cond
    ((eq (car-safe qpat) '\,) (cadr qpat))
+   ((eq (car-safe qpat) '\,@) (error "Unsupported QPAT: %S" qpat))
    ((vectorp qpat)
     `(and (pred vectorp)
           (app length ,(length qpat))
           ,@(let ((upats nil))
               (dotimes (i (length qpat))
-                (push `(app (pcase--flip aref ,i) ,(list '\` (aref qpat i)))
+                (push `(app (aref _ ,i) ,(list '\` (aref qpat i)))
                       upats))
               (nreverse upats))))
    ((consp qpat)

@@ -233,8 +233,8 @@ EPA/EPG set up, the file will be encrypted and decrypted
 automatically.  See Info node `(epa)Encrypting/decrypting gpg files'
 for details.
 
-It's best to customize this with `\\[customize-variable]' because the choices
-can get pretty complex."
+It's best to customize this with \\[customize-variable] because
+the choices can get pretty complex."
   :version "26.1" ; neither new nor changed default
   :type `(repeat :tag "Authentication Sources"
                  (choice
@@ -330,7 +330,6 @@ If the value is not a list, symmetric encryption will be used."
 
 (defun auth-source-read-char-choice (prompt choices)
   "Read one of CHOICES by `read-char-choice', or `read-char'.
-`dropdown-list' support is disabled because it doesn't work reliably.
 Only one of CHOICES will be returned.  The PROMPT is augmented
 with \"[a/b/c] \" if CHOICES is \(?a ?b ?c)."
   (when choices
@@ -1986,7 +1985,7 @@ entries for git.gnus.org:
 
 
 (defun auth-source--decode-octal-string (string)
-  "Convert octal STRING to utf-8 string.  E.g: \"a\134b\" to \"a\b\"."
+  "Convert octal STRING to utf-8 string.  E.g.: \"a\\134b\" to \"a\\b\"."
   (let ((list (string-to-list string))
         (size (length string)))
     (decode-coding-string

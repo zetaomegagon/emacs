@@ -360,13 +360,13 @@ static struct gcstat
   object_ct total_intervals, total_free_intervals;
   object_ct total_buffers;
 
-  /* Size of the ancillary arrays of live hash-table objects.
+  /* Size of the ancillary arrays of live hash-table and obarray objects.
      The objects themselves are not included (counted as vectors above).  */
   byte_ct total_hash_table_bytes;
 } gcstat;
 
-/* Total size of ancillary arrays of all allocated hash-table objects,
-   both dead and alive.  This number is always kept up-to-date.  */
+/* Total size of ancillary arrays of all allocated hash-table and obarray
+   objects, both dead and alive.  This number is always kept up-to-date.  */
 static ptrdiff_t hash_table_allocated_bytes = 0;
 
 /* Points to memory space allocated as "spare", to be freed if we run
@@ -1466,9 +1466,9 @@ static INTERVAL interval_free_list;
   __asan_unpoison_memory_region ((b)->intervals, \
 				 sizeof ((b)->intervals))
 # define ASAN_POISON_INTERVAL(i) \
-  __asan_poison_memory_region ((i), sizeof (*(i)))
+  __asan_poison_memory_region (i, sizeof *(i))
 # define ASAN_UNPOISON_INTERVAL(i) \
-  __asan_unpoison_memory_region ((i), sizeof (*(i)))
+  __asan_unpoison_memory_region (i, sizeof *(i))
 #else
 # define ASAN_POISON_INTERVAL_BLOCK(b) ((void) 0)
 # define ASAN_UNPOISON_INTERVAL_BLOCK(b) ((void) 0)
@@ -1752,25 +1752,25 @@ init_strings (void)
  */
 # define ASAN_PREPARE_DEAD_SDATA(s, size)                          \
   do {                                                             \
-    __asan_poison_memory_region ((s), sdata_size ((size)));        \
-    __asan_unpoison_memory_region (&(((s))->string),                 \
+    __asan_poison_memory_region (s, sdata_size (size));		   \
+    __asan_unpoison_memory_region (&(s)->string,		   \
 				   sizeof (struct Lisp_String *)); \
-    __asan_unpoison_memory_region (&SDATA_NBYTES ((s)),            \
-				   sizeof (SDATA_NBYTES ((s))));   \
+    __asan_unpoison_memory_region (&SDATA_NBYTES (s),		   \
+				   sizeof SDATA_NBYTES (s));	   \
    } while (false)
 /* Prepare s for storing string data for NBYTES bytes.  */
 # define ASAN_PREPARE_LIVE_SDATA(s, nbytes) \
-  __asan_unpoison_memory_region ((s), sdata_size ((nbytes)))
+  __asan_unpoison_memory_region (s, sdata_size (nbytes))
 # define ASAN_POISON_SBLOCK_DATA(b, size) \
-  __asan_poison_memory_region ((b)->data, (size))
+  __asan_poison_memory_region ((b)->data, size)
 # define ASAN_POISON_STRING_BLOCK(b) \
   __asan_poison_memory_region ((b)->strings, STRING_BLOCK_SIZE)
 # define ASAN_UNPOISON_STRING_BLOCK(b) \
   __asan_unpoison_memory_region ((b)->strings, STRING_BLOCK_SIZE)
 # define ASAN_POISON_STRING(s) \
-  __asan_poison_memory_region ((s), sizeof (*(s)))
+  __asan_poison_memory_region (s, sizeof *(s))
 # define ASAN_UNPOISON_STRING(s) \
-  __asan_unpoison_memory_region ((s), sizeof (*(s)))
+  __asan_unpoison_memory_region (s, sizeof *(s))
 #else
 # define ASAN_PREPARE_DEAD_SDATA(s, size) ((void) 0)
 # define ASAN_PREPARE_LIVE_SDATA(s, nbytes) ((void) 0)
@@ -2691,13 +2691,13 @@ struct float_block
 };
 
 #define XFLOAT_MARKED_P(fptr) \
-  GETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX ((fptr)))
+  GETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX (fptr))
 
 #define XFLOAT_MARK(fptr) \
-  SETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX ((fptr)))
+  SETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX (fptr))
 
 #define XFLOAT_UNMARK(fptr) \
-  UNSETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX ((fptr)))
+  UNSETMARKBIT (FLOAT_BLOCK (fptr), FLOAT_INDEX (fptr))
 
 #if GC_ASAN_POISON_OBJECTS
 # define ASAN_POISON_FLOAT_BLOCK(fblk)         \
@@ -2707,9 +2707,9 @@ struct float_block
   __asan_unpoison_memory_region ((fblk)->floats, \
 				 sizeof ((fblk)->floats))
 # define ASAN_POISON_FLOAT(p) \
-  __asan_poison_memory_region ((p), sizeof (struct Lisp_Float))
+  __asan_poison_memory_region (p, sizeof (struct Lisp_Float))
 # define ASAN_UNPOISON_FLOAT(p) \
-  __asan_unpoison_memory_region ((p), sizeof (struct Lisp_Float))
+  __asan_unpoison_memory_region (p, sizeof (struct Lisp_Float))
 #else
 # define ASAN_POISON_FLOAT_BLOCK(fblk) ((void) 0)
 # define ASAN_UNPOISON_FLOAT_BLOCK(fblk) ((void) 0)
@@ -2803,13 +2803,13 @@ struct cons_block
 };
 
 #define XCONS_MARKED_P(fptr) \
-  GETMARKBIT (CONS_BLOCK (fptr), CONS_INDEX ((fptr)))
+  GETMARKBIT (CONS_BLOCK (fptr), CONS_INDEX (fptr))
 
 #define XMARK_CONS(fptr) \
-  SETMARKBIT (CONS_BLOCK (fptr), CONS_INDEX ((fptr)))
+  SETMARKBIT (CONS_BLOCK (fptr), CONS_INDEX (fptr))
 
 #define XUNMARK_CONS(fptr) \
-  UNSETMARKBIT (CONS_BLOCK (fptr), CONS_INDEX ((fptr)))
+  UNSETMARKBIT (CONS_BLOCK (fptr), CONS_INDEX (fptr))
 
 /* Minimum number of bytes of consing since GC before next GC,
    when memory is full.  */
@@ -2832,9 +2832,9 @@ static struct Lisp_Cons *cons_free_list;
 # define ASAN_POISON_CONS_BLOCK(b) \
   __asan_poison_memory_region ((b)->conses, sizeof ((b)->conses))
 # define ASAN_POISON_CONS(p) \
-  __asan_poison_memory_region ((p), sizeof (struct Lisp_Cons))
+  __asan_poison_memory_region (p, sizeof (struct Lisp_Cons))
 # define ASAN_UNPOISON_CONS(p) \
-  __asan_unpoison_memory_region ((p), sizeof (struct Lisp_Cons))
+  __asan_unpoison_memory_region (p, sizeof (struct Lisp_Cons))
 #else
 # define ASAN_POISON_CONS_BLOCK(b) ((void) 0)
 # define ASAN_POISON_CONS(p) ((void) 0)
@@ -3152,11 +3152,11 @@ Lisp_Object zero_vector;
 
 #if GC_ASAN_POISON_OBJECTS
 # define ASAN_POISON_VECTOR_CONTENTS(v, bytes) \
-  __asan_poison_memory_region ((v)->contents, (bytes))
+  __asan_poison_memory_region ((v)->contents, bytes)
 # define ASAN_UNPOISON_VECTOR_CONTENTS(v, bytes) \
-  __asan_unpoison_memory_region ((v)->contents, (bytes))
+  __asan_unpoison_memory_region ((v)->contents, bytes)
 # define ASAN_UNPOISON_VECTOR_BLOCK(b) \
-  __asan_unpoison_memory_region ((b)->data, sizeof ((b)->data))
+  __asan_unpoison_memory_region ((b)->data, sizeof (b)->data)
 #else
 # define ASAN_POISON_VECTOR_CONTENTS(v, bytes) ((void) 0)
 # define ASAN_UNPOISON_VECTOR_CONTENTS(v, bytes) ((void) 0)
@@ -3443,7 +3443,7 @@ cleanup_vector (struct Lisp_Vector *vector)
 	struct Lisp_Hash_Table *h = PSEUDOVEC_STRUCT (vector, Lisp_Hash_Table);
 	if (h->table_size > 0)
 	  {
-	    eassert (h->index_size > 1);
+	    eassert (h->index_bits > 0);
 	    xfree (h->index);
 	    xfree (h->key_and_value);
 	    xfree (h->next);
@@ -3451,10 +3451,19 @@ cleanup_vector (struct Lisp_Vector *vector)
 	    ptrdiff_t bytes = (h->table_size * (2 * sizeof *h->key_and_value
 						+ sizeof *h->hash
 						+ sizeof *h->next)
-			       + h->index_size * sizeof *h->index);
+			       + hash_table_index_size (h) * sizeof *h->index);
 	    hash_table_allocated_bytes -= bytes;
 	  }
       }
+      break;
+    case PVEC_OBARRAY:
+      {
+	struct Lisp_Obarray *o = PSEUDOVEC_STRUCT (vector, Lisp_Obarray);
+	xfree (o->buckets);
+	ptrdiff_t bytes = obarray_size (o) * sizeof *o->buckets;
+	hash_table_allocated_bytes -= bytes;
+      }
+      break;
     /* Keep the switch exhaustive.  */
     case PVEC_NORMAL_VECTOR:
     case PVEC_FREE:
@@ -3886,9 +3895,9 @@ struct symbol_block
 # define ASAN_UNPOISON_SYMBOL_BLOCK(s) \
   __asan_unpoison_memory_region ((s)->symbols, sizeof ((s)->symbols))
 # define ASAN_POISON_SYMBOL(sym) \
-  __asan_poison_memory_region ((sym), sizeof (*(sym)))
+  __asan_poison_memory_region (sym, sizeof *(sym))
 # define ASAN_UNPOISON_SYMBOL(sym) \
-  __asan_unpoison_memory_region ((sym), sizeof (*(sym)))
+  __asan_unpoison_memory_region (sym, sizeof *(sym))
 
 #else
 # define ASAN_POISON_SYMBOL_BLOCK(s) ((void) 0)
@@ -3951,7 +3960,7 @@ Its value is void, and its function definition and property list are nil.  */)
   if (symbol_free_list)
     {
       ASAN_UNPOISON_SYMBOL (symbol_free_list);
-      XSETSYMBOL (val, symbol_free_list);
+      val = make_lisp_symbol (symbol_free_list);
       symbol_free_list = symbol_free_list->u.s.next;
     }
   else
@@ -3967,7 +3976,7 @@ Its value is void, and its function definition and property list are nil.  */)
 	}
 
       ASAN_UNPOISON_SYMBOL (&symbol_block->symbols[symbol_block_index]);
-      XSETSYMBOL (val, &symbol_block->symbols[symbol_block_index]);
+      val = make_lisp_symbol (&symbol_block->symbols[symbol_block_index]);
       symbol_block_index++;
     }
 
@@ -5632,7 +5641,8 @@ valid_lisp_object_p (Lisp_Object obj)
   return 0;
 }
 
-/* Like xmalloc, but makes allocation count toward the total consing.
+/* Like xmalloc, but makes allocation count toward the total consing
+   and hash table or obarray usage.
    Return NULL for a zero-sized allocation.  */
 void *
 hash_table_alloc_bytes (ptrdiff_t nbytes)
@@ -5959,7 +5969,8 @@ purecopy_hash_table (struct Lisp_Hash_Table *table)
       for (ptrdiff_t i = 0; i < nvalues; i++)
 	pure->key_and_value[i] = purecopy (table->key_and_value[i]);
 
-      ptrdiff_t index_bytes = table->index_size * sizeof *table->index;
+      ptrdiff_t index_bytes = hash_table_index_size (table)
+	                      * sizeof *table->index;
       pure->index = pure_alloc (index_bytes, -(int)sizeof *table->index);
       memcpy (pure->index, table->index, index_bytes);
     }
@@ -6033,8 +6044,7 @@ purecopy (Lisp_Object obj)
           return obj; /* Don't hash cons it.  */
         }
 
-      struct Lisp_Hash_Table *h = purecopy_hash_table (table);
-      XSET_HASH_TABLE (obj, h);
+      obj = make_lisp_hash_table (purecopy_hash_table (table));
     }
   else if (COMPILEDP (obj) || VECTORP (obj) || RECORDP (obj))
     {
@@ -6291,11 +6301,10 @@ android_make_lisp_symbol (struct Lisp_Symbol *sym)
   intptr_t symoffset;
 
   symoffset = (intptr_t) sym;
-  INT_SUBTRACT_WRAPV (symoffset, (intptr_t) &lispsym,
-		      &symoffset);
+  ckd_sub (&symoffset, symoffset, (intptr_t) &lispsym);
 
   {
-    Lisp_Object a = TAG_PTR (Lisp_Symbol, symoffset);
+    Lisp_Object a = TAG_PTR_INITIALLY (Lisp_Symbol, symoffset);
     return a;
   }
 }
@@ -6594,6 +6603,8 @@ garbage_collect (void)
   mark_terminals ();
   mark_kboards ();
   mark_threads ();
+  mark_charset ();
+  mark_composite ();
   mark_profiler ();
 #ifdef HAVE_PGTK
   mark_pgtkterm ();
@@ -7293,6 +7304,9 @@ process_mark_stack (ptrdiff_t base_sp)
 		  struct Lisp_Hash_Table *h = (struct Lisp_Hash_Table *)ptr;
 		  set_vector_marked (ptr);
 		  if (h->weakness == Weak_None)
+		    /* The values pushed here may include
+		       HASH_UNUSED_ENTRY_KEY, which this function must
+		       cope with.  */
 		    mark_stack_push_values (h->key_and_value,
 					    2 * h->table_size);
 		  else
@@ -7303,6 +7317,14 @@ process_mark_stack (ptrdiff_t base_sp)
 		      h->next_weak = weak_hash_tables;
 		      weak_hash_tables = h;
 		    }
+		  break;
+		}
+
+	      case PVEC_OBARRAY:
+		{
+		  struct Lisp_Obarray *o = (struct Lisp_Obarray *)ptr;
+		  set_vector_marked (ptr);
+		  mark_stack_push_values (o->buckets, obarray_size (o));
 		  break;
 		}
 
@@ -7376,12 +7398,8 @@ process_mark_stack (ptrdiff_t base_sp)
 		mark_stack_push_value (SYMBOL_VAL (ptr));
 		break;
 	      case SYMBOL_VARALIAS:
-		{
-		  Lisp_Object tem;
-		  XSETSYMBOL (tem, SYMBOL_ALIAS (ptr));
-		  mark_stack_push_value (tem);
-		  break;
-		}
+		mark_stack_push_value (make_lisp_symbol (SYMBOL_ALIAS (ptr)));
+		break;
 	      case SYMBOL_LOCALIZED:
 		{
 		  struct Lisp_Buffer_Local_Value *blv = SYMBOL_BLV (ptr);
@@ -7437,14 +7455,19 @@ process_mark_stack (ptrdiff_t base_sp)
 	  }
 
 	case Lisp_Float:
-	  CHECK_ALLOCATED_AND_LIVE (live_float_p, MEM_TYPE_FLOAT);
-	  /* Do not mark floats stored in a dump image: these floats are
-	     "cold" and do not have mark bits.  */
-	  if (pdumper_object_p (XFLOAT (obj)))
-	    eassert (pdumper_cold_object_p (XFLOAT (obj)));
-	  else if (!XFLOAT_MARKED_P (XFLOAT (obj)))
-	    XFLOAT_MARK (XFLOAT (obj));
-	  break;
+	  {
+	    struct Lisp_Float *f = XFLOAT (obj);
+	    if (!f)
+	      break;		/* for HASH_UNUSED_ENTRY_KEY */
+	    CHECK_ALLOCATED_AND_LIVE (live_float_p, MEM_TYPE_FLOAT);
+	    /* Do not mark floats stored in a dump image: these floats are
+	       "cold" and do not have mark bits.  */
+	    if (pdumper_object_p (f))
+	      eassert (pdumper_cold_object_p (f));
+	    else if (!XFLOAT_MARKED_P (f))
+	      XFLOAT_MARK (f);
+	    break;
+	  }
 
 	case_Lisp_Int:
 	  break;

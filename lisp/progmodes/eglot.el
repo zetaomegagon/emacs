@@ -2,12 +2,12 @@
 
 ;; Copyright (C) 2018-2024 Free Software Foundation, Inc.
 
-;; Version: 1.16
+;; Version: 1.17
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Maintainer: João Távora <joaotavora@gmail.com>
 ;; URL: https://github.com/joaotavora/eglot
 ;; Keywords: convenience, languages
-;; Package-Requires: ((emacs "26.3") (jsonrpc "1.0.23") (flymake "1.2.1") (project "0.9.8") (xref "1.6.2") (eldoc "1.14.0") (seq "2.23") (external-completion "0.1"))
+;; Package-Requires: ((emacs "26.3") (jsonrpc "1.0.24") (flymake "1.2.1") (project "0.9.8") (xref "1.6.2") (eldoc "1.14.0") (seq "2.23") (external-completion "0.1"))
 
 ;; This is a GNU ELPA :core package.  Avoid adding functionality
 ;; that is not available in the version of Emacs recorded above or any
@@ -243,7 +243,7 @@ automatically)."
                                   (typescript-mode :language-id "typescript"))
                                  . ("typescript-language-server" "--stdio"))
                                 ((bash-ts-mode sh-mode) . ("bash-language-server" "start"))
-                                ((php-mode phps-mode)
+                                ((php-mode phps-mode php-ts-mode)
                                  . ,(eglot-alternatives
                                      '(("phpactor" "language-server")
                                        ("php" "vendor/felixfbecker/language-server/bin/php-language-server.php"))))
@@ -259,7 +259,7 @@ automatically)."
                                  . ("haskell-language-server-wrapper" "--lsp"))
                                 (elm-mode . ("elm-language-server"))
                                 (mint-mode . ("mint" "ls"))
-                                (kotlin-mode . ("kotlin-language-server"))
+                                ((kotlin-mode kotlin-ts-mode) . ("kotlin-language-server"))
                                 ((go-mode go-dot-mod-mode go-dot-work-mode go-ts-mode go-mod-ts-mode)
                                  . ("gopls"))
                                 ((R-mode ess-r-mode) . ("R" "--slave" "-e"
@@ -284,6 +284,7 @@ automatically)."
                                 ((yaml-ts-mode yaml-mode) . ("yaml-language-server" "--stdio"))
                                 (nix-mode . ,(eglot-alternatives '("nil" "rnix-lsp" "nixd")))
                                 (nickel-mode . ("nls"))
+                                ((nushell-mode nushell-ts-mode) . ("nu" "--lsp"))
                                 (gdscript-mode . ("localhost" 6008))
                                 ((fortran-mode f90-mode) . ("fortls"))
                                 (futhark-mode . ("futhark" "lsp"))
@@ -309,7 +310,10 @@ automatically)."
                                        ("vscode-markdown-language-server" "--stdio"))))
                                 (graphviz-dot-mode . ("dot-language-server" "--stdio"))
                                 (terraform-mode . ("terraform-ls" "serve"))
-                                ((uiua-ts-mode uiua-mode) . ("uiua" "lsp")))
+                                ((uiua-ts-mode uiua-mode) . ("uiua" "lsp"))
+                                (sml-mode
+                                 . ,(lambda (_interactive project)
+                                      (list "millet-ls" (project-root project)))))
   "How the command `eglot' guesses the server to start.
 An association list of (MAJOR-MODE . CONTACT) pairs.  MAJOR-MODE
 identifies the buffers that are to be managed by a specific
@@ -575,7 +579,7 @@ It is nil if Eglot is not byte-complied.")
 
 (defvaralias 'eglot-{} 'eglot--{})
 
-(defconst eglot--{} (make-hash-table :size 1) "The empty JSON object.")
+(defconst eglot--{} (make-hash-table :size 0) "The empty JSON object.")
 
 (defun eglot--executable-find (command &optional remote)
   "Like Emacs 27's `executable-find', ignore REMOTE on Emacs 26."
@@ -590,7 +594,7 @@ It is nil if Eglot is not byte-complied.")
   (let ((vec (copy-sequence url-path-allowed-chars)))
     (aset vec ?: nil) ;; see github#639
     vec)
-  "Like `url-path-allows-chars' but more restrictive.")
+  "Like `url-path-allowed-chars' but more restrictive.")
 
 
 ;;; Message verification helpers
@@ -1797,6 +1801,12 @@ If optional MARKER, return a marker instead"
 
 
 ;;; More helpers
+(defconst eglot--uri-path-allowed-chars
+  (let ((vec (copy-sequence url-path-allowed-chars)))
+    (aset vec ?: nil) ;; see github#639
+    vec)
+  "Like `url-path-allowed-chars' but more restrictive.")
+
 (defun eglot--snippet-expansion-fn ()
   "Compute a function to expand snippets.
 Doubles as an indicator of snippet support."
@@ -3054,9 +3064,14 @@ for which LSP on-type-formatting should be requested."
            finally (cl-return comp)))
 
 (defun eglot--dumb-allc (pat table pred _point) (funcall table pat pred t))
+(defun eglot--dumb-tryc (pat table pred point)
+  (let ((probe (funcall table pat pred nil)))
+    (cond ((eq probe t) t)
+          (probe (cons probe (length probe)))
+          (t (cons pat point)))))
 
 (add-to-list 'completion-category-defaults '(eglot-capf (styles eglot--dumb-flex)))
-(add-to-list 'completion-styles-alist '(eglot--dumb-flex ignore eglot--dumb-allc))
+(add-to-list 'completion-styles-alist '(eglot--dumb-flex eglot--dumb-tryc eglot--dumb-allc))
 
 (defun eglot-completion-at-point ()
   "Eglot's `completion-at-point' function."
@@ -3115,7 +3130,8 @@ for which LSP on-type-formatting should be requested."
                          items)))
                   ;; (trace-values "Requested" (length proxies) cachep bounds)
                   (setq eglot--capf-session
-                        (if cachep (list bounds retval resolved orig-pos) :none))
+                        (if cachep (list bounds retval resolved orig-pos
+                                         bounds-string) :none))
                   (setq local-cache retval)))))
            (resolve-maybe
             ;; Maybe completion/resolve JSON object `lsp-comp' into
@@ -3135,7 +3151,8 @@ for which LSP on-type-formatting should be requested."
                  (>= (cdr bounds) (cdr (nth 0 eglot--capf-session))))
         (setq local-cache (nth 1 eglot--capf-session)
               resolved (nth 2 eglot--capf-session)
-              orig-pos (nth 3 eglot--capf-session))
+              orig-pos (nth 3 eglot--capf-session)
+              bounds-string (nth 4 eglot--capf-session))
         ;; (trace-values "Recalling cache" (length local-cache) bounds orig-pos)
         )
       (list
