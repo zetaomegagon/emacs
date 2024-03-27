@@ -84,7 +84,7 @@ public class EmacsActivity extends Activity
   };
 
   public static void
-  invalidateFocus1 (EmacsWindow window)
+  invalidateFocus1 (EmacsWindow window, boolean resetWhenChildless)
   {
     if (window.view.isFocused ())
       focusedWindow = window;
@@ -92,7 +92,18 @@ public class EmacsActivity extends Activity
     synchronized (window.children)
       {
 	for (EmacsWindow child : window.children)
-	  invalidateFocus1 (child);
+	  invalidateFocus1 (child, false);
+
+	/* If no focused window was previously detected among WINDOW's
+	   children and RESETWHENCHILDLESS is set (implying it is a
+	   toplevel window), request that it be focused, to avoid
+	   creating a situation where no windows exist focused or can be
+	   transferred the input focus by user action.  */
+	if (focusedWindow == null && resetWhenChildless)
+	  {
+	    window.view.requestFocus ();
+	    focusedWindow = window;
+	  }
       }
   }
 
@@ -110,7 +121,7 @@ public class EmacsActivity extends Activity
     for (EmacsActivity activity : focusedActivities)
       {
 	if (activity.window != null)
-	  invalidateFocus1 (activity.window);
+	  invalidateFocus1 (activity.window, focusedWindow == null);
       }
 
     /* Send focus in- and out- events to the previous and current
@@ -453,6 +464,27 @@ public class EmacsActivity extends Activity
     syncFullscreenWith (window);
   }
 
+  @Override
+  public final void
+  onNewIntent (Intent intent)
+  {
+    String tag, action;
+
+    /* This function is called when EmacsActivity is relaunched from a
+       notification.  */
+
+    if (intent == null || EmacsService.SERVICE == null)
+      return;
+
+    tag = intent.getStringExtra (EmacsDesktopNotification.NOTIFICATION_TAG);
+    action
+      = intent.getStringExtra (EmacsDesktopNotification.NOTIFICATION_ACTION);
+
+    if (tag == null || action == null)
+      return;
+
+    EmacsNative.sendNotificationAction (tag, action);
+  }
 
 
   @Override

@@ -193,16 +193,37 @@ DEFUN ("null", Fnull, Snull, 1, 1, 0,
 DEFUN ("type-of", Ftype_of, Stype_of, 1, 1, 0,
        doc: /* Return a symbol representing the type of OBJECT.
 The symbol returned names the object's basic type;
-for example, (type-of 1) returns `integer'.  */)
+for example, (type-of 1) returns `integer'.
+Contrary to `cl-type-of', the returned type is not always the most
+precise type possible, because instead this function tries to preserve
+compatibility with the return value of previous Emacs versions.  */)
+  (Lisp_Object object)
+{
+  return SYMBOLP (object)    ? Qsymbol
+         : INTEGERP (object) ? Qinteger
+         : SUBRP (object)    ? Qsubr
+         : Fcl_type_of (object);
+}
+
+DEFUN ("cl-type-of", Fcl_type_of, Scl_type_of, 1, 1, 0,
+       doc: /* Return a symbol representing the type of OBJECT.
+The returned symbol names the most specific possible type of the object.
+for example, (cl-type-of nil) returns `null'.
+The specific type returned may change depending on Emacs versions,
+so we recommend you use `cl-typep', `cl-typecase', or other predicates
+rather than compare the return value of this function against
+a fixed set of types.  */)
   (Lisp_Object object)
 {
   switch (XTYPE (object))
     {
     case_Lisp_Int:
-      return Qinteger;
+      return Qfixnum;
 
     case Lisp_Symbol:
-      return Qsymbol;
+      return NILP (object) ? Qnull
+             : EQ (object, Qt) ? Qboolean
+             : Qsymbol;
 
     case Lisp_String:
       return Qstring;
@@ -211,11 +232,11 @@ for example, (type-of 1) returns `integer'.  */)
       return Qcons;
 
     case Lisp_Vectorlike:
-      /* WARNING!!  Keep 'cl--typeof-types' in sync with this code!!  */
+      /* WARNING!!  Keep 'cl--type-hierarchy' in sync with this code!!  */
       switch (PSEUDOVECTOR_TYPE (XVECTOR (object)))
         {
         case PVEC_NORMAL_VECTOR: return Qvector;
-	case PVEC_BIGNUM: return Qinteger;
+	case PVEC_BIGNUM: return Qbignum;
 	case PVEC_MARKER: return Qmarker;
 	case PVEC_SYMBOL_WITH_POS: return Qsymbol_with_pos;
 	case PVEC_OVERLAY: return Qoverlay;
@@ -224,7 +245,10 @@ for example, (type-of 1) returns `integer'.  */)
         case PVEC_WINDOW_CONFIGURATION: return Qwindow_configuration;
         case PVEC_PROCESS: return Qprocess;
         case PVEC_WINDOW: return Qwindow;
-        case PVEC_SUBR: return Qsubr;
+        case PVEC_SUBR:
+          return XSUBR (object)->max_args == UNEVALLED ? Qspecial_form
+                 : SUBR_NATIVE_COMPILEDP (object) ? Qsubr_native_elisp
+                 : Qprimitive_function;
         case PVEC_COMPILED: return Qcompiled_function;
         case PVEC_BUFFER: return Qbuffer;
         case PVEC_CHAR_TABLE: return Qchar_table;
@@ -339,7 +363,8 @@ DEFUN ("bare-symbol-p", Fbare_symbol_p, Sbare_symbol_p, 1, 1, 0,
 }
 
 DEFUN ("symbol-with-pos-p", Fsymbol_with_pos_p, Ssymbol_with_pos_p, 1, 1, 0,
-       doc: /* Return t if OBJECT is a symbol together with position.  */
+       doc: /* Return t if OBJECT is a symbol together with position.
+Ignore `symbols-with-pos-enabled'.  */
        attributes: const)
   (Lisp_Object object)
 {
@@ -789,25 +814,32 @@ Doing that might make Emacs dysfunctional, and might even crash Emacs.  */)
 }
 
 DEFUN ("bare-symbol", Fbare_symbol, Sbare_symbol, 1, 1, 0,
-       doc: /* Extract, if need be, the bare symbol from SYM, a symbol.  */)
+       doc: /* Extract, if need be, the bare symbol from SYM.
+SYM is either a symbol or a symbol with position.
+Ignore `symbols-with-pos-enabled'.  */)
   (register Lisp_Object sym)
 {
-  CHECK_SYMBOL (sym);
-  return BARE_SYMBOL_P (sym) ? sym : XSYMBOL_WITH_POS_SYM (sym);
+  if (BARE_SYMBOL_P (sym))
+    return sym;
+  if (SYMBOL_WITH_POS_P (sym))
+    return XSYMBOL_WITH_POS_SYM (sym);
+  xsignal2 (Qwrong_type_argument, list2 (Qsymbolp, Qsymbol_with_pos_p), sym);
 }
 
 DEFUN ("symbol-with-pos-pos", Fsymbol_with_pos_pos, Ssymbol_with_pos_pos, 1, 1, 0,
-       doc: /* Extract the position from a symbol with position.  */)
-  (register Lisp_Object ls)
+       doc: /* Extract the position from the symbol with position SYMPOS.
+Ignore `symbols-with-pos-enabled'.  */)
+  (register Lisp_Object sympos)
 {
-  CHECK_TYPE (SYMBOL_WITH_POS_P (ls), Qsymbol_with_pos_p, ls);
-  return XSYMBOL_WITH_POS_POS (ls);
+  CHECK_TYPE (SYMBOL_WITH_POS_P (sympos), Qsymbol_with_pos_p, sympos);
+  return XSYMBOL_WITH_POS_POS (sympos);
 }
 
 DEFUN ("remove-pos-from-symbol", Fremove_pos_from_symbol,
        Sremove_pos_from_symbol, 1, 1, 0,
        doc: /* If ARG is a symbol with position, return it without the position.
-Otherwise, return ARG unchanged.  Compare with `bare-symbol'.  */)
+Otherwise, return ARG unchanged.  Ignore `symbols-with-pos-enabled'.
+Compare with `bare-symbol'.  */)
   (register Lisp_Object arg)
 {
   if (SYMBOL_WITH_POS_P (arg))
@@ -816,10 +848,11 @@ Otherwise, return ARG unchanged.  Compare with `bare-symbol'.  */)
 }
 
 DEFUN ("position-symbol", Fposition_symbol, Sposition_symbol, 2, 2, 0,
-       doc: /* Create a new symbol with position.
+       doc: /* Make a new symbol with position.
 SYM is a symbol, with or without position, the symbol to position.
-POS, the position, is either a fixnum or a symbol with position from which
-the position will be taken.  */)
+POS, the position, is either a nonnegative fixnum,
+or a symbol with position from which the position will be taken.
+Ignore `symbols-with-pos-enabled'.  */)
      (register Lisp_Object sym, register Lisp_Object pos)
 {
   Lisp_Object bare = Fbare_symbol (sym);
@@ -1256,7 +1289,7 @@ If OBJECT is not a symbol, just return it.  */)
       struct Lisp_Symbol *sym = XSYMBOL (object);
       while (sym->u.s.redirect == SYMBOL_VARALIAS)
 	sym = SYMBOL_ALIAS (sym);
-      object = make_lisp_symbol (sym);
+      XSETSYMBOL (object, sym);
     }
   return object;
 }
@@ -1506,9 +1539,12 @@ swap_in_symval_forwarding (struct Lisp_Symbol *symbol, struct Lisp_Buffer_Local_
       if (blv->fwd.fwdptr)
 	set_blv_value (blv, do_symval_forwarding (blv->fwd));
       /* Choose the new binding.  */
-      tem1 = assq_no_quit (make_lisp_symbol (symbol),
-			   BVAR (current_buffer, local_var_alist));
-      set_blv_where (blv, Fcurrent_buffer ());
+      {
+	Lisp_Object var;
+	XSETSYMBOL (var, symbol);
+	tem1 = assq_no_quit (var, BVAR (current_buffer, local_var_alist));
+	set_blv_where (blv, Fcurrent_buffer ());
+      }
       if (!(blv->found = !NILP (tem1)))
 	tem1 = blv->defcell;
 
@@ -1652,8 +1688,7 @@ set_internal (Lisp_Object symbol, Lisp_Object newval, Lisp_Object where,
 	      set_blv_value (blv, do_symval_forwarding (blv->fwd));
 
 	    /* Find the new binding.  */
-	    /* May have changed via aliasing.  */
-	    symbol = make_lisp_symbol (sym);
+	    XSETSYMBOL (symbol, sym); /* May have changed via aliasing.  */
 	    Lisp_Object tem1
 	      = assq_no_quit (symbol,
 			      BVAR (XBUFFER (where), local_var_alist));
@@ -2057,10 +2092,13 @@ make_blv (struct Lisp_Symbol *sym, bool forwarded,
 	  union Lisp_Val_Fwd valcontents)
 {
   struct Lisp_Buffer_Local_Value *blv = xmalloc (sizeof *blv);
-  Lisp_Object tem = Fcons (make_lisp_symbol (sym),
-			   forwarded
-			   ? do_symval_forwarding (valcontents.fwd)
-			   : valcontents.value);
+  Lisp_Object symbol;
+  Lisp_Object tem;
+
+ XSETSYMBOL (symbol, sym);
+ tem = Fcons (symbol, (forwarded
+                       ? do_symval_forwarding (valcontents.fwd)
+                       : valcontents.value));
 
   /* Buffer_Local_Values cannot have as realval a buffer-local
      or keyboard-local forwarding.  */
@@ -2216,7 +2254,7 @@ Instead, use `add-hook' and specify t for the LOCAL argument.  */)
     }
 
   /* Make sure this buffer has its own value of symbol.  */
-  variable = make_lisp_symbol (sym);	/* Update in case of aliasing.  */
+  XSETSYMBOL (variable, sym);	/* Update in case of aliasing.  */
   tem = assq_no_quit (variable, BVAR (current_buffer, local_var_alist));
   if (NILP (tem))
     {
@@ -2296,7 +2334,7 @@ From now on the default value will apply in this buffer.  Return VARIABLE.  */)
     notify_variable_watchers (variable, Qnil, Qmakunbound, Fcurrent_buffer ());
 
   /* Get rid of this buffer's alist element, if any.  */
-  variable = make_lisp_symbol (sym);	/* Propagate variable indirection.  */
+  XSETSYMBOL (variable, sym);	/* Propagate variable indirection.  */
   tem = assq_no_quit (variable, BVAR (current_buffer, local_var_alist));
   if (!NILP (tem))
     bset_local_var_alist
@@ -2341,7 +2379,7 @@ Also see `buffer-local-boundp'.*/)
 	Lisp_Object tmp;
 	struct Lisp_Buffer_Local_Value *blv = SYMBOL_BLV (sym);
 	XSETBUFFER (tmp, buf);
-	variable = make_lisp_symbol (sym); /* Update in case of aliasing.  */
+	XSETSYMBOL (variable, sym); /* Update in case of aliasing.  */
 
 	if (EQ (blv->where, tmp)) /* The binding is already loaded.  */
 	  return blv_found (blv) ? Qt : Qnil;
@@ -2391,7 +2429,7 @@ value in BUFFER, or if VARIABLE is automatically buffer-local (see
 	struct Lisp_Buffer_Local_Value *blv = SYMBOL_BLV (sym);
 	if (blv->local_if_set)
 	  return Qt;
-	variable = make_lisp_symbol (sym); /* Update in case of aliasing.  */
+	XSETSYMBOL (variable, sym); /* Update in case of aliasing.  */
 	return Flocal_variable_p (variable, buffer);
       }
     case SYMBOL_FORWARDED:
@@ -4188,7 +4226,9 @@ syms_of_data (void)
 	     "Variable binding depth exceeds max-specpdl-size");
 
   /* Types that type-of returns.  */
+  DEFSYM (Qboolean, "boolean");
   DEFSYM (Qinteger, "integer");
+  DEFSYM (Qbignum, "bignum");
   DEFSYM (Qsymbol, "symbol");
   DEFSYM (Qstring, "string");
   DEFSYM (Qcons, "cons");
@@ -4204,6 +4244,9 @@ syms_of_data (void)
   DEFSYM (Qprocess, "process");
   DEFSYM (Qwindow, "window");
   DEFSYM (Qsubr, "subr");
+  DEFSYM (Qspecial_form, "special-form");
+  DEFSYM (Qprimitive_function, "primitive-function");
+  DEFSYM (Qsubr_native_elisp, "subr-native-elisp");
   DEFSYM (Qcompiled_function, "compiled-function");
   DEFSYM (Qbuffer, "buffer");
   DEFSYM (Qframe, "frame");
@@ -4241,6 +4284,7 @@ syms_of_data (void)
   defsubr (&Seq);
   defsubr (&Snull);
   defsubr (&Stype_of);
+  defsubr (&Scl_type_of);
   defsubr (&Slistp);
   defsubr (&Snlistp);
   defsubr (&Sconsp);
@@ -4369,7 +4413,7 @@ This variable cannot be set; trying to do so will signal an error.  */);
 
   DEFSYM (Qsymbols_with_pos_enabled, "symbols-with-pos-enabled");
   DEFVAR_BOOL ("symbols-with-pos-enabled", symbols_with_pos_enabled,
-               doc: /* Non-nil when "symbols with position" can be used as symbols.
+               doc: /* If non-nil, a symbol with position ordinarily behaves as its bare symbol.
 Bind this to non-nil in applications such as the byte compiler.  */);
   symbols_with_pos_enabled = false;
 

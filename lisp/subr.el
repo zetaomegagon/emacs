@@ -312,10 +312,19 @@ value of last one, or nil if there are none."
                               cond '(empty-body unless) t)))
 
 (defsubst subr-primitive-p (object)
-  "Return t if OBJECT is a built-in primitive function."
+  "Return t if OBJECT is a built-in primitive written in C.
+Such objects can be functions or special forms."
   (declare (side-effect-free error-free))
   (and (subrp object)
        (not (subr-native-elisp-p object))))
+
+(defsubst primitive-function-p (object)
+  "Return t if OBJECT is a built-in primitive function.
+This excludes special forms, since they are not functions."
+  (declare (side-effect-free error-free))
+  (and (subrp object)
+       (not (or (subr-native-elisp-p object)
+                (eq (cdr (subr-arity object)) 'unevalled)))))
 
 (defsubst xor (cond1 cond2)
   "Return the boolean exclusive-or of COND1 and COND2.
@@ -3396,6 +3405,10 @@ with Emacs.  Do not call it directly in your own packages."
        (+ i beg) (+ 1 i beg)
        'help-echo "C-u: Clear password\nTAB: Toggle password visibility"))))
 
+;; Actually in textconv.c.
+(defvar overriding-text-conversion-style)
+(declare-function set-text-conversion-style "textconv.c")
+
 (defun read-passwd (prompt &optional confirm default)
   "Read a password, prompting with PROMPT, and return it.
 If optional CONFIRM is non-nil, read the password twice to make sure.
@@ -3436,7 +3449,8 @@ by doing (clear-string STRING)."
             (add-hook 'post-command-hook #'read-passwd--hide-password nil t))
         (unwind-protect
             (let ((enable-recursive-minibuffers t)
-		  (read-hide-char (or read-hide-char ?*)))
+		  (read-hide-char (or read-hide-char ?*))
+                  (overriding-text-conversion-style 'password))
               (read-string prompt nil t default)) ; t = "no history"
           (when (buffer-live-p minibuf)
             (with-current-buffer minibuf
@@ -3448,7 +3462,10 @@ by doing (clear-string STRING)."
                            #'read-passwd--hide-password 'local)
               (kill-local-variable 'post-self-insert-hook)
               ;; And of course, don't keep the sensitive data around.
-              (erase-buffer))))))))
+              (erase-buffer)
+              ;; Then restore the previous text conversion style.
+              (when (fboundp 'set-text-conversion-style)
+                (set-text-conversion-style text-conversion-style)))))))))
 
 (defvar read-number-history nil
   "The default history for the `read-number' function.")
@@ -3554,11 +3571,6 @@ causes it to evaluate `help-form' and display the result."
 		 (help-form-show)))
 	   ((memq char chars)
 	    (setq done t))
-	   ((and executing-kbd-macro (= char -1))
-	    ;; read-event returns -1 if we are in a kbd macro and
-	    ;; there are no more events in the macro.  Attempt to
-	    ;; get an event interactively.
-	    (setq executing-kbd-macro nil))
 	   ((not inhibit-keyboard-quit)
 	    (cond
 	     ((and (null esc-flag) (eq char ?\e))
@@ -3862,10 +3874,6 @@ confusing to some users.")
                                                      ; connected.
                from--tty-menu-p)            ; invoked via TTY menu
            use-dialog-box)))
-
-;; Actually in textconv.c.
-(defvar overriding-text-conversion-style)
-(declare-function set-text-conversion-style "textconv.c")
 
 (defun y-or-n-p (prompt)
   "Ask user a \"y or n\" question.
@@ -4499,8 +4507,7 @@ Otherwise, return nil."
 (defun special-form-p (object)
   "Non-nil if and only if OBJECT is a special form."
   (declare (side-effect-free error-free))
-  (if (and (symbolp object) (fboundp object))
-      (setq object (indirect-function object)))
+  (if (symbolp object) (setq object (indirect-function object)))
   (and (subrp object) (eq (cdr (subr-arity object)) 'unevalled)))
 
 (defun plistp (object)
@@ -4522,7 +4529,8 @@ Otherwise, return nil."
 Does not distinguish between functions implemented in machine code
 or byte-code."
   (declare (side-effect-free error-free))
-  (or (subrp object) (byte-code-function-p object)))
+  (or (and (subrp object) (not (eq 'unevalled (cdr (subr-arity object)))))
+      (byte-code-function-p object)))
 
 (defun field-at-pos (pos)
   "Return the field at position POS, taking stickiness etc into account."
