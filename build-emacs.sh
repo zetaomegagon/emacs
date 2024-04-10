@@ -30,6 +30,7 @@ case "$input" in
 	    dtach
 	)
 
+	sudo dnf clean all
 	sudo dnf upgrade -y
 	sudo dnf builddep -y emacs
 	sudo dnf install -y "${packages[@]}"
@@ -194,6 +195,7 @@ case "$input" in
 	    "/usr/local/lib/emacs/${version}/native-lisp"
 	    "$HOME/.emacs.d/eln-cache"
 	    "$HOME/.emacs.d/straight"
+	    "$HOME/.emacs.d/elpaca"
 	)
 
 	for path in "${paths[@]}"; do
@@ -220,7 +222,11 @@ case "$input" in
 	    --with-gnutls
 	    --with-file-notification=yes
 	    --with-gameuser=:games
+	    --with-threads
+	    --disable-build-details
+	    --disable-silent-rules
 	    --enable-check-lisp-object-type
+	    --enable-gcc-warnings=warn-only
 	    --with-native-compilation=aot
 	)
 
@@ -232,6 +238,7 @@ case "$input" in
 	flags_x11=(
 	    --with-x-toolkit=no
 	    --with-cairo
+	    --with-xwidgets
 	)
 
 	flags_pgtk=(
@@ -273,23 +280,21 @@ case "$input" in
 	fi
 
 	# pull and build straight packages
-	if [[ -d $HOME/.emacs.d/straight ]]; then
-	    # iteration 0 to pull packages and build them
-	    # iteration 1 to native compile them
-	    for i in 0 1; do
-		/usr/local/bin/emacs \
-		    --quick \
-		    --batch \
-		    --load=$HOME/.emacs.d/early-init.el \
-		    --load=$HOME/.emacs.d/init.el
-	    done &
-	fi
+	for i in 0 1; do
+	    # two iterations to download; then compile packages...
+	    # ...I think...
+	    /usr/local/bin/emacs \
+		--quick \
+		--batch \
+		--load=$HOME/.emacs.d/early-init.el \
+		--load=$HOME/.emacs.d/init.el
+	done &
 
-	build_straight_pid=$!
-	printf "%s\n" "Building and compiling Straight packages"
+	build_packages_pid=$!
+	printf "%s\n" "Building and compiling packages"
 
 	# reload changed unit files
-	wait "$build_straight_pid"
+	wait "$build_packages_pid"
 	emacsctl daemon-reload
 	emacsctl start
 	;;
