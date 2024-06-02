@@ -862,6 +862,7 @@ GNU and Unix systems).  Substitute environment variables into the
 resulting list of directory names.  For an empty path element (i.e.,
 a leading or trailing separator, or two adjacent separators), return
 nil (meaning `default-directory') as the associated list element."
+  (declare (ftype (function (string) list)))
   (when (stringp search-path)
     (let ((spath (substitute-env-vars search-path))
           (double-slash-special-p
@@ -1504,27 +1505,28 @@ containing it, until no links are left at any level.
 			(new (file-name-as-directory (file-truename dirfile counter prev-dirs))))
 		    (setcar prev-dirs (cons (cons old new) (car prev-dirs)))
 		    (setq dir new))))
-	    (if (equal ".." (file-name-nondirectory filename))
-		(setq filename
-		      (directory-file-name (file-name-directory (directory-file-name dir)))
-		      done t)
-	      (if (equal "." (file-name-nondirectory filename))
-		  (setq filename (directory-file-name dir)
-			done t)
-		;; Put it back on the file name.
-		(setq filename (concat dir (file-name-nondirectory filename)))
-		;; Is the file name the name of a link?
-		(setq target (file-symlink-p filename))
-		(if target
-		    ;; Yes => chase that link, then start all over
-		    ;; since the link may point to a directory name that uses links.
-		    ;; We can't safely use expand-file-name here
-		    ;; since target might look like foo/../bar where foo
-		    ;; is itself a link.  Instead, we handle . and .. above.
-		    (setq filename (files--splice-dirname-file dir target)
-			  done nil)
-		  ;; No, we are done!
-		  (setq done t))))))))
+            (let ((filename-no-dir (file-name-nondirectory filename)))
+	      (if (equal ".." filename-no-dir)
+		  (setq filename
+		        (directory-file-name (file-name-directory (directory-file-name dir)))
+		        done t)
+	        (if (equal "." filename-no-dir)
+		    (setq filename (directory-file-name dir)
+			  done t)
+		  ;; Put it back on the file name.
+		  (setq filename (concat dir filename-no-dir))
+		  ;; Is the file name the name of a link?
+		  (setq target (file-symlink-p filename))
+		  (if target
+		      ;; Yes => chase that link, then start all over
+		      ;; since the link may point to a directory name that uses links.
+		      ;; We can't safely use expand-file-name here
+		      ;; since target might look like foo/../bar where foo
+		      ;; is itself a link.  Instead, we handle . and .. above.
+		      (setq filename (files--splice-dirname-file dir target)
+			    done nil)
+		    ;; No, we are done!
+		    (setq done t)))))))))
     filename))
 
 (defun file-chase-links (filename &optional limit)
@@ -2113,15 +2115,15 @@ killed."
 	(rename-buffer oname)))
     (unless (eq (current-buffer) obuf)
       (with-current-buffer obuf
-	(unless (get-buffer oname)
-	  ;; Restore original's buffer name so 'kill-buffer' can use it
-	  ;; to assign its last name (Bug#68235).
-	  (rename-buffer oname))
 	;; Restore original buffer's file names so they can be still
 	;; used when referencing the now defunct buffer (Bug#68235).
 	(setq buffer-file-name ofile)
 	(setq buffer-file-number onum)
 	(setq buffer-file-truename otrue)
+	(unless (get-buffer oname)
+	  ;; Restore original's buffer name so 'kill-buffer' can use it
+	  ;; to assign its last name (Bug#68235).
+	  (rename-buffer oname))
 	;; We already ran these; don't run them again.
 	(let (kill-buffer-query-functions kill-buffer-hook)
 	  (kill-buffer obuf))))))
@@ -2929,7 +2931,7 @@ since only a single case-insensitive search through the alist is made."
      ("\\.emacs-places\\'" . lisp-data-mode)
      ("\\.el\\'" . emacs-lisp-mode)
      ("Project\\.ede\\'" . emacs-lisp-mode)
-     ("\\.\\(scm\\|sls\\|sld\\|stk\\|ss\\|sch\\)\\'" . scheme-mode)
+     ("\\(?:\\.\\(?:scm\\|sls\\|sld\\|stk\\|ss\\|sch\\)\\|/\\.guile\\)\\'" . scheme-mode)
      ("\\.l\\'" . lisp-mode)
      ("\\.li?sp\\'" . lisp-mode)
      ("\\.[fF]\\'" . fortran-mode)
@@ -3568,17 +3570,18 @@ we don't actually set it to the same mode the buffer already has."
   "Remember the mode we have set via `set-auto-mode-0'.")
 
 (defcustom major-mode-remap-alist nil
-  "Alist mapping file-specified mode to actual mode.
-Every entry is of the form (MODE . FUNCTION) which means that in order
-to activate the major mode MODE (specified via something like
-`auto-mode-alist', file-local variables, ...) we should actually call
-FUNCTION instead.
-FUNCTION can be nil to hide other entries (either in this var or in
-`major-mode-remap-defaults') and means that we should call MODE."
+  "Alist mapping file-specified modes to alternative modes.
+Each entry is of the form (MODE . FUNCTION) which means that in place
+of activating the major mode MODE (specified via something like
+`auto-mode-alist', file-local variables, ...) we actually call FUNCTION
+instead.
+FUNCTION is typically a major mode which \"does the same thing\" as
+MODE, but can also be nil to hide other entries (either in this var or
+in `major-mode-remap-defaults') and means that we should call MODE."
   :type '(alist (symbol) (function)))
 
 (defvar major-mode-remap-defaults nil
-  "Alist mapping file-specified mode to actual mode.
+  "Alist mapping file-specified modes to alternative modes.
 This works like `major-mode-remap-alist' except it has lower priority
 and it is meant to be modified by packages rather than users.")
 
@@ -8812,9 +8815,10 @@ Otherwise, trash FILENAME using the freedesktop.org conventions,
   ;; If `system-move-file-to-trash' is defined, use it.
   (cond ((fboundp 'system-move-file-to-trash)
 	 (system-move-file-to-trash filename))
-        (trash-directory
+        ((connection-local-value trash-directory)
 	 ;; If `trash-directory' is non-nil, move the file there.
-	 (let* ((trash-dir   (expand-file-name trash-directory))
+	 (let* ((trash-dir   (expand-file-name
+                              (connection-local-value trash-directory)))
 		(fn          (directory-file-name (expand-file-name filename)))
 		(new-fn      (concat (file-name-as-directory trash-dir)
 				     (file-name-nondirectory fn))))

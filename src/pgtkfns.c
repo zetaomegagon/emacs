@@ -945,6 +945,7 @@ unless TYPE is `png'.  */)
   return pgtk_cr_export_frames (frames, surface_type);
 }
 
+extern frame_parm_handler pgtk_frame_parm_handlers[];
 frame_parm_handler pgtk_frame_parm_handlers[] =
   {
     gui_set_autoraise,		/* generic OK */
@@ -2148,7 +2149,7 @@ If omitted or nil, that stands for the selected frame's display.
 On PGTK, always return true-color.  */)
   (Lisp_Object terminal)
 {
-  return intern ("true-color");
+  return Qtrue_color;
 }
 
 
@@ -2619,7 +2620,7 @@ static Lisp_Object tip_frame;
 
 /* The window-system window corresponding to the frame of the
    currently visible tooltip.  */
-GtkWidget *tip_window;
+static GtkWidget *tip_window;
 
 /* A timer that hides or deletes the currently visible tooltip when it
    fires.  */
@@ -2844,7 +2845,7 @@ x_create_tip_frame (struct pgtk_display_info *dpyinfo, Lisp_Object parms, struct
   {
     Lisp_Object disptype;
 
-    disptype = intern ("color");
+    disptype = Qcolor;
 
     if (NILP (Fframe_parameter (frame, Qdisplay_type)))
       {
@@ -3391,8 +3392,7 @@ Text larger than the specified size is clipped.  */)
 
  start_timer:
   /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (intern ("run-at-time"), timeout, Qnil,
-		     intern ("x-hide-tip"));
+  tip_timer = call3 (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
 
   return unbind_to (count, Qnil);
 }
@@ -3967,4 +3967,8 @@ syms_of_pgtkfns (void)
   DEFSYM (Qlandscape, "landscape");
   DEFSYM (Qreverse_portrait, "reverse-portrait");
   DEFSYM (Qreverse_landscape, "reverse-landscape");
+  DEFSYM (Qtrue_color, "true-color");
+  DEFSYM (Qcolor, "color");
+  DEFSYM (Qrun_at_time, "run-at-time");
+  DEFSYM (Qx_hide_tip, "x-hide-tip");
 }

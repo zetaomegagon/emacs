@@ -299,6 +299,15 @@ handling of autoloaded functions."
           (buffer-string))))))
 
 ;;;###autoload
+(defun help-find-source ()
+  "Switch to a buffer visiting the source of what is being described in *Help*."
+  (interactive)
+  (if-let ((help-buffer (get-buffer "*Help*")))
+      (with-current-buffer help-buffer
+          (help-view-source))
+    (error "No *Help* buffer found")))
+
+;;;###autoload
 (defun describe-command (command)
   "Display the full documentation of COMMAND (a symbol).
 When called from Lisp, COMMAND may also be a function object."
@@ -362,14 +371,17 @@ if the variable `help-downcase-arguments' is non-nil."
   (propertize (if help-downcase-arguments (downcase arg) arg)
 	      'face 'help-argument-name))
 
-(defun help-do-arg-highlight (doc args)
+(defun help-do-arg-highlight (doc args &optional usage-p)
   (with-syntax-table (make-syntax-table emacs-lisp-mode-syntax-table)
     (modify-syntax-entry ?\- "w")
     (dolist (arg args)
       (setq doc (replace-regexp-in-string
                  ;; This is heuristic, but covers all common cases
                  ;; except ARG1-ARG2
-                 (concat "([^ ]+ .*"             ; skip function name
+                 (concat (when usage-p
+                           ;; Skip function name in usage string
+                           ;; (Bug#65580).
+                           "([^ ]+ .*")
                          "\\<"                   ; beginning of word
                          "\\(?:[a-z-]*-\\)?"     ; for xxx-ARG
                          "\\("
@@ -404,7 +416,7 @@ if the variable `help-downcase-arguments' is non-nil."
               (search-backward "(")
               (goto-char (scan-sexps (point) 1)))))
         ;; Highlight arguments in the USAGE string
-        (setq usage (help-do-arg-highlight (buffer-string) args))
+        (setq usage (help-do-arg-highlight (buffer-string) args t))
         ;; Highlight arguments in the DOC string
         (setq doc (and doc (help-do-arg-highlight doc args))))))
   ;; Return value is like the one from help-split-fundoc, but highlighted
@@ -475,7 +487,7 @@ the C sources, too."
     (cond
      ((and (not file-name)
            (subrp type)
-           (not (subr-native-elisp-p type)))
+           (not (native-comp-function-p type)))
       ;; A built-in function.  The form is from `describe-function-1'.
       (if (or (get-buffer " *DOC*")
               (and also-c-source
@@ -658,16 +670,14 @@ the C sources, too."
           (progn
             (insert (format-message " `%s'" handler))
             (save-excursion
-              (re-search-backward (substitute-command-keys "`\\([^`']+\\)'")
-                                  nil t)
+              (re-search-backward (substitute-command-keys "`\\([^`']+\\)'"))
               (help-xref-button 1 'help-function handler)))
         ;; FIXME: Obsolete since 24.4.
         (let ((lib (get function 'compiler-macro-file)))
           (when (stringp lib)
             (insert (format-message " in `%s'" lib))
             (save-excursion
-              (re-search-backward (substitute-command-keys "`\\([^`']+\\)'")
-                                  nil t)
+              (re-search-backward (substitute-command-keys "`\\([^`']+\\)'"))
               (help-xref-button 1 'help-function-cmacro function lib)))))))
   (unless (bolp)
     (insert ".  See "
@@ -734,7 +744,7 @@ the C sources, too."
               (insert (format
                        (if (eq kind 'inferred)
                            "\nInferred type: %s\n"
-                         "\nType: %s\n")
+                         "\nDeclared type: %s\n")
                        type-spec))))
           (fill-region fill-begin (point))
           high-doc)))))
@@ -1132,8 +1142,7 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
           (setq help-mode--current-data (list :symbol function
                                               :file file-name))
 	  (save-excursion
-	    (re-search-backward (substitute-command-keys "`\\([^`']+\\)'")
-                                nil t)
+            (re-search-backward (substitute-command-keys "`\\([^`']+\\)'"))
 	    (help-xref-button 1 'help-function-def function file-name))))
       (princ "."))))
 
@@ -1332,8 +1341,7 @@ it is displayed along with the global value."
                                          :file file-name))
                              (save-excursion
 			       (re-search-backward (substitute-command-keys
-                                                    "`\\([^`']+\\)'")
-                                                   nil t)
+                                                    "`\\([^`']+\\)'"))
 			       (help-xref-button 1 'help-variable-def
 					         variable file-name)))
 		           (if valvoid
@@ -1572,8 +1580,7 @@ This cancels value editing without updating the value."
       (princ (concat "  You can " customize-label (or text " this variable.")))
       (with-current-buffer standard-output
 	(save-excursion
-	  (re-search-backward
-	   (concat "\\(" customize-label "\\)") nil t)
+          (re-search-backward (concat "\\(" customize-label "\\)"))
 	  (help-xref-button 1 'help-customize-variable variable)))
       (terpri))))
 
@@ -1803,8 +1810,7 @@ If FRAME is omitted or nil, use the selected frame."
 			  "\n\n"))
 	        (with-current-buffer standard-output
 		  (save-excursion
-		    (re-search-backward
-		     (concat "\\(" customize-label "\\)") nil t)
+                    (re-search-backward (concat "\\(" customize-label "\\)"))
 		    (help-xref-button 1 'help-customize-face f)))
 	        (setq file-name (find-lisp-object-file-name f 'defface))
 	        (if (not file-name)
@@ -1817,7 +1823,7 @@ If FRAME is omitted or nil, use the selected frame."
 		  ;; Make a hyperlink to the library.
 		  (save-excursion
 		    (re-search-backward
-                     (substitute-command-keys "`\\([^`']+\\)'") nil t)
+                     (substitute-command-keys "`\\([^`']+\\)'"))
 		    (help-xref-button 1 'help-face-def f file-name))
 		  (princ ".")
 		  (terpri)
@@ -1864,7 +1870,7 @@ If FRAME is omitted or nil, use the selected frame."
 		 (not (eq attr 'unspecified)))
 	    ;; Make a hyperlink to the parent face.
 	    (save-excursion
-	      (re-search-backward ": \\([^:]+\\)" nil t)
+              (re-search-backward ": \\([^:]+\\)")
 	      (help-xref-button 1 'help-face attr)))
 	(insert "\n")))
     (terpri)))
@@ -2115,9 +2121,7 @@ keymap value."
                           "C source code"
                         (help-fns-short-filename file-name))))
               (save-excursion
-                (re-search-backward (substitute-command-keys
-                                     "`\\([^`']+\\)'")
-                                    nil t)
+                (re-search-backward (substitute-command-keys "`\\([^`']+\\)'"))
                 (setq help-mode--current-data (list :symbol keymap
                                                     :file file-name))
                 (help-xref-button 1 'help-variable-def

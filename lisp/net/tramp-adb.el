@@ -3,6 +3,7 @@
 ;; Copyright (C) 2011-2024 Free Software Foundation, Inc.
 
 ;; Author: Jürgen Hötzel <juergen@archlinux.org>
+;; Maintainer: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
 ;; Package: tramp
 
@@ -222,15 +223,14 @@ arguments to pass to the OPERATION."
 ;;;###tramp-autoload
 (defun tramp-adb-parse-device-names (_ignore)
   "Return a list of (nil host) tuples allowed to access."
-  (delq nil
-	(mapcar
-	 (lambda (line)
-	   (when (string-match
-		  (rx bol (group (+ (not blank))) (+ blank) "device" eol) line)
-	     ;; Replace ":" by "#".
-	     `(nil ,(tramp-compat-string-replace
-		     ":" tramp-prefix-port-format (match-string 1 line)))))
-	 (tramp-process-lines nil tramp-adb-program "devices"))))
+  (tramp-compat-seq-keep
+   (lambda (line)
+     (when (string-match
+	    (rx bol (group (+ (not blank))) (+ blank) "device" eol) line)
+       ;; Replace ":" by "#".
+       `(nil ,(tramp-compat-string-replace
+	       ":" tramp-prefix-port-format (match-string 1 line)))))
+   (tramp-process-lines nil tramp-adb-program "devices")))
 
 (defun tramp-adb-handle-file-system-info (filename)
   "Like `file-system-info' for Tramp files."
