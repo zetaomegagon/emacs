@@ -523,7 +523,7 @@ file_name_directory (Lisp_Object filename)
   else
     {
       dostounix_filename (beg);
-      tem_fn = make_specified_string (beg, -1, p - beg, 0);
+      tem_fn = make_unibyte_string (beg, p - beg);
     }
   SAFE_FREE ();
   return tem_fn;
@@ -5741,7 +5741,7 @@ DEFUN ("car-less-than-car", Fcar_less_than_car, Scar_less_than_car, 2, 2, 0,
   Lisp_Object ca = Fcar (a), cb = Fcar (b);
   if (FIXNUMP (ca) && FIXNUMP (cb))
     return XFIXNUM (ca) < XFIXNUM (cb) ? Qt : Qnil;
-  return arithcompare (ca, cb, ARITH_LESS);
+  return arithcompare (ca, cb) & Cmp_LT ? Qt : Qnil;
 }
 
 /* Build the complete list of annotations appropriate for writing out
@@ -6531,7 +6531,18 @@ If the underlying system call fails, value is nil.  */)
   || defined STAT_STATFS4 || defined STAT_STATVFS		\
   || defined STAT_STATVFS64
   struct fs_usage u;
-  if (get_fs_usage (SSDATA (ENCODE_FILE (filename)), NULL, &u) != 0)
+  const char *name;
+
+  name = SSDATA (ENCODE_FILE (filename));
+
+#if defined HAVE_ANDROID && !defined ANDROID_STUBIFY
+  /* With special directories, this information is unavailable.  */
+  if (android_is_special_directory (name, "/assets")
+      || android_is_special_directory (name, "/content"))
+    return Qnil;
+#endif /* defined HAVE_ANDROID && !defined ANDROID_STUBIFY */
+
+  if (get_fs_usage (name, NULL, &u) != 0)
     return errno == ENOSYS ? Qnil : file_attribute_errno (filename, errno);
   return list3 (blocks_to_bytes (u.fsu_blocksize, u.fsu_blocks, false),
 		blocks_to_bytes (u.fsu_blocksize, u.fsu_bfree, false),

@@ -3135,8 +3135,23 @@ read_char (int commandflag, Lisp_Object map,
 	  /* Change menu-bar to (menu-bar) as the event "position".  */
 	  POSN_SET_POSN (xevent_start (c), list1 (posn));
 
-	  also_record = c;
-	  Vunread_command_events = Fcons (c, Vunread_command_events);
+	  /* Should a command call `sit-for', or another command that
+	     provides a timespec to Fread_event and co., the original
+	     event will not subsequently be entered into
+	     this_command_keys unless Qt be specified below.
+
+	     The same is the case in a number of other scenarios where
+	     reread is true, but if so, event recording is to be
+	     suppressed anyway.  */
+
+	  if (end_time)
+	    Vunread_command_events = Fcons (Fcons (Qt, c),
+					    Vunread_command_events);
+	  else
+	    {
+	      also_record = c;
+	      Vunread_command_events = Fcons (c, Vunread_command_events);
+	    }
 	  c = posn;
 	}
     }
@@ -4631,20 +4646,21 @@ timer_resume_idle (void)
    ...).  Each element has the form (FUN . ARGS).  */
 Lisp_Object pending_funcalls;
 
-/* Return true if TIMER is a valid timer, placing its value into *RESULT.  */
-static bool
-decode_timer (Lisp_Object timer, struct timespec *result)
+/* Return the value of TIMER if it is a valid timer, an invalid struct
+   timespec otherwise.  */
+static struct timespec
+decode_timer (Lisp_Object timer)
 {
   Lisp_Object *vec;
 
   if (! (VECTORP (timer) && ASIZE (timer) == 10))
-    return false;
+    return invalid_timespec ();
   vec = XVECTOR (timer)->contents;
   if (! NILP (vec[0]))
-    return false;
+    return invalid_timespec ();
   if (! FIXNUMP (vec[2]))
-    return false;
-  return list4_to_timespec (vec[1], vec[2], vec[3], vec[8], result);
+    return invalid_timespec ();
+  return list4_to_timespec (vec[1], vec[2], vec[3], vec[8]);
 }
 
 
@@ -4663,15 +4679,6 @@ decode_timer (Lisp_Object timer, struct timespec *result)
 static struct timespec
 timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
 {
-  struct timespec nexttime;
-  struct timespec now;
-  struct timespec idleness_now;
-  Lisp_Object chosen_timer;
-
-  nexttime = invalid_timespec ();
-
-  chosen_timer = Qnil;
-
   /* First run the code that was delayed.  */
   while (CONSP (pending_funcalls))
     {
@@ -4680,18 +4687,18 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
       safe_calln (Qapply, XCAR (funcall), XCDR (funcall));
     }
 
-  if (CONSP (timers) || CONSP (idle_timers))
-    {
-      now = current_timespec ();
-      idleness_now = (timespec_valid_p (timer_idleness_start_time)
-		      ? timespec_sub (now, timer_idleness_start_time)
-		      : make_timespec (0, 0));
-    }
+  if (! (CONSP (timers) || CONSP (idle_timers)))
+    return invalid_timespec ();
 
-  while (CONSP (timers) || CONSP (idle_timers))
+  struct timespec
+    now = current_timespec (),
+    idleness_now = (timespec_valid_p (timer_idleness_start_time)
+		    ? timespec_sub (now, timer_idleness_start_time)
+		    : make_timespec (0, 0));
+
+  do
     {
-      Lisp_Object timer = Qnil, idle_timer = Qnil;
-      struct timespec timer_time, idle_timer_time;
+      Lisp_Object chosen_timer, timer = Qnil, idle_timer = Qnil;
       struct timespec difference;
       struct timespec timer_difference = invalid_timespec ();
       struct timespec idle_timer_difference = invalid_timespec ();
@@ -4705,7 +4712,8 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
       if (CONSP (timers))
 	{
 	  timer = XCAR (timers);
-	  if (! decode_timer (timer, &timer_time))
+	  struct timespec timer_time = decode_timer (timer);
+	  if (! timespec_valid_p (timer_time))
 	    {
 	      timers = XCDR (timers);
 	      continue;
@@ -4722,7 +4730,8 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
       if (CONSP (idle_timers))
 	{
 	  idle_timer = XCAR (idle_timers);
-	  if (! decode_timer (idle_timer, &idle_timer_time))
+	  struct timespec idle_timer_time = decode_timer (idle_timer);
+	  if (! timespec_valid_p (idle_timer_time))
 	    {
 	      idle_timers = XCDR (idle_timers);
 	      continue;
@@ -4793,8 +4802,7 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
 		 return 0 to indicate that.  */
 	    }
 
-	  nexttime = make_timespec (0, 0);
-          break;
+	  return make_timespec (0, 0);
 	}
       else
 	/* When we encounter a timer that is still waiting,
@@ -4803,10 +4811,10 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
 	  return difference;
 	}
     }
+  while (CONSP (timers) || CONSP (idle_timers));
 
   /* No timers are pending in the future.  */
-  /* Return 0 if we generated an event, and -1 if not.  */
-  return nexttime;
+  return invalid_timespec ();
 }
 
 
@@ -7697,7 +7705,7 @@ This function potentially generates an artificial switch-frame event.  */)
   if (!EQ (CAR_SAFE (event), Qfocus_in) ||
       !CONSP (XCDR (event)) ||
       !FRAMEP ((frame = XCAR (XCDR (event)))))
-    error ("invalid focus-in event");
+    error ("Invalid focus-in event");
 
   /* Conceptually, the concept of window manager focus on a particular
      frame and the Emacs selected frame shouldn't be related, but for

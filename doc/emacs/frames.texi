@@ -1295,16 +1295,22 @@ menus' visual appearance.
 @node Tool Bars
 @section Tool Bars
 @cindex tool bar mode
+@cindex tool bar, attached to frame
 @cindex mode, Tool Bar
 @cindex icons, toolbar
 
-  On graphical displays, Emacs puts a @dfn{tool bar} at the top of
-each frame, just below the menu bar.  This is a row of icons which you
-can click on with the mouse to invoke various commands.
+  On graphical displays, Emacs puts a @dfn{tool bar} at the top of each
+frame, just below the menu bar.  This is a row of buttons with icons
+which you can click on with the mouse to invoke various commands.  Emacs
+can also optionally display a tool bar at the top of each window
+(@pxref{Window Tool Bar}).
 
+@vindex tool-bar-always-show-default
   The global (default) tool bar contains general commands.  Some major
 modes define their own tool bars; whenever a buffer with such a major
-mode is current, the mode's tool bar replaces the global tool bar.
+mode is current, the mode's tool bar replaces the global tool bar.  To
+prevent this replacement from happening, customize the variable
+@code{tool-bar-always-show-default}.
 
 @findex tool-bar-mode
 @vindex tool-bar-mode
@@ -1537,7 +1543,7 @@ After customizing the variable @code{tab-bar-select-tab-modifiers} to
 specify one or more @var{modifier} keys, you can select a tab by its
 ordinal number using one of the specified modifiers in combination
 with the tab number to select.  The number 9 can be used to select the
-last tab. You can select any modifiers supported by Emacs,
+last tab.  You can select any modifiers supported by Emacs,
 @pxref{Modifier Keys}.  To display the tab number alongside the tab
 name, you can customize another variable @code{tab-bar-tab-hints}.
 This will help you decide which numerical key to press to select the

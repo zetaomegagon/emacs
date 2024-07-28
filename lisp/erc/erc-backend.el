@@ -2,7 +2,6 @@
 
 ;; Copyright (C) 2004-2024 Free Software Foundation, Inc.
 
-;; Filename: erc-backend.el
 ;; Author: Lawrence Mitchell <wence@gmx.li>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 ;; Created: 2004-05-7
@@ -261,7 +260,7 @@ or
 where PARAMETER is a string and VALUE is a string or nil.  For
 compatibility, a raw parameter of the form \"FOO=\" becomes
 (\"FOO\" . \"\") even though it's equivalent to the preferred
-canonical form \"FOO\" and its lisp representation (\"FOO\").
+canonical form \"FOO\" and its Lisp representation (\"FOO\").
 
 Some examples of possible parameters sent by servers:
 CHANMODES=b,k,l,imnpst - list of supported channel modes
@@ -426,7 +425,7 @@ If this value is too low, servers may reject your initial nick
 request upon reconnecting because they haven't yet noticed that
 your previous connection is dead.  If this happens, try setting
 this value to 120 or greater and/or exploring the option
-`erc-regain-services-alist', which may provide a more proactive
+`erc-services-regain-alist', which may provide a more proactive
 means of handling this situation on some servers."
   :type 'number)
 
@@ -885,7 +884,7 @@ Expect BUFFER to be the server buffer for the current connection."
                                                  (time-convert nil 'integer))))
                            ((or "connection broken by remote peer\n"
                                 (rx bot "failed"))
-                            (funcall reschedule proc)))))
+                            (run-at-time nil nil reschedule proc)))))
              (filter (lambda (proc _)
                        (delete-process proc)
                        (with-current-buffer buffer
@@ -1648,6 +1647,10 @@ Would expand to:
   non-nil, stop processing the hook.  Otherwise, continue.
 
   See also `erc-server-311'.\"))
+
+  Note that while all ALIASES share the same handler function, each gets
+  its own distinct hook variable.  The default value of these variables
+  may be a list or a function.  Robust code should handle both.
 
 \(fn (NAME &rest ALIASES) &optional EXTRA-FN-DOC EXTRA-VAR-DOC &rest FN-BODY)"
   (declare (debug (&define [&name "erc-response-handler@"

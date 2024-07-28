@@ -751,8 +751,10 @@ This uses `ffap-file-exists-string', which may try adding suffixes from
     ("\\.\\([chCH]\\|cc\\|hh\\)\\'" . ffap-c-mode) ; stdio.h
     (fortran-mode . ffap-fortran-mode)
     ("\\.[fF]\\'" . ffap-fortran-mode)
-    (tex-mode . ffap-tex-mode)		; search ffap-tex-path
+    (plain-tex-mode . ffap-tex-mode)    ; search ffap-tex-path
     (latex-mode . ffap-latex-mode)	; similar
+    (plain-TeX-mode . ffap-tex-mode)    ; AUCTeX v14 counterpart
+    (LaTeX-mode . ffap-latex-mode)      ; ditto
     ("\\.\\(tex\\|sty\\|doc\\|cls\\)\\'" . ffap-tex)
     ("\\.bib\\'" . ffap-bib)		; search ffap-bib-path
     ("\\`\\." . ffap-home)		; .emacs, .bashrc, .profile
@@ -1064,7 +1066,10 @@ If a given RFC isn't in these then `ffap-rfc-path' is offered."
     (math-mode ",-:$+<>@-Z_[:lower:]~`" "<" "@>;.,!?`:")
     ;; (La)TeX: don't allow braces
     (latex-mode "--:\\\\$+<>@-Z_[:alpha:]~*?" "<@" "@>;.,!:")
-    (tex-mode "--:\\\\$+<>@-Z_[:alpha:]~*?" "<@" "@>;.,!:")
+    (plain-tex-mode "--:\\\\$+<>@-Z_[:alpha:]~*?" "<@" "@>;.,!:")
+    ;; AUCTeX v14 counterparts:
+    (LaTeX-mode "--:\\\\$+<>@-Z_[:alpha:]~*?" "<@" "@>;.,!:")
+    (plain-TeX-mode "--:\\\\$+<>@-Z_[:alpha:]~*?" "<@" "@>;.,!:")
     ;; XML: don't allow angle brackets
     (xml-mode "--:\\\\${}+@-Z_[:alpha:]~*?#" "{<@" "@>;.,!:}")
     (nxml-mode "--:\\\\${}+@-Z_[:alpha:]~*?#" "{<@" "@>;.,!:}")
@@ -1948,12 +1953,12 @@ Only intended for interactive use."
 ;; bindings you would prefer.
 
 (defun ffap-ro-mode-hook ()
-  "Bind `ffap-next' and `ffap-menu' to M-l and M-m, resp."
+  "Bind `ffap-next' and `ffap-menu' to \\`M-l' and \\`M-m', resp."
   (local-set-key "\M-l" 'ffap-next)
   (local-set-key "\M-m" 'ffap-menu))
 
 (defun ffap-gnus-hook ()
-  "Bind `ffap-gnus-next' and `ffap-gnus-menu' to M-l and M-m, resp."
+  "Bind `ffap-gnus-next' and `ffap-gnus-menu' to \\`M-l' and \\`M-m', resp."
   ;; message-id's
   (setq-local thing-at-point-default-mail-uri-scheme "news")
   ;; Note "l", "L", "m", "M" are taken:

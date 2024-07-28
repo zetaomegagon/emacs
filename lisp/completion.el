@@ -65,7 +65,7 @@
 ;;---------------------
 ;;
 ;;   A "word" is any string containing characters with either word or symbol
-;; syntax.  [E.G. Any alphanumeric string with hyphens, underscores, etc.]
+;; syntax.  [E.g., any alphanumeric string with hyphens, underscores, etc.]
 ;; Unless you change the constants, you must type at least three characters
 ;; for the word to be recognized.  Only words longer than 6 characters are
 ;; saved.
@@ -992,7 +992,7 @@ Each symbol is bound to a single completion entry.")
 ;; Updating the database
 ;;-----------------------------------------------
 ;;
-;;   These are the internal functions used to update the datebase
+;;   These are the internal functions used to update the database
 ;;
 ;;
 (defvar completion-to-accept nil

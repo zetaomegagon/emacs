@@ -53,6 +53,8 @@
 (declare-function tramp-file-name-host-port "tramp")
 (declare-function tramp-file-name-user-domain "tramp")
 (declare-function tramp-get-default-directory "tramp")
+(defvar tramp-repository-branch)
+(defvar tramp-repository-version)
 
 ;;;###tramp-autoload
 (defcustom tramp-verbose 3
@@ -127,7 +129,7 @@ The outline level is equal to the verbosity of the Tramp message."
 ;; `command-completion-default-include-p'.
 (defun tramp-debug-buffer-command-completion-p (_symbol buffer)
   "A predicate for Tramp interactive commands.
-They are completed by \"M-x TAB\" only in Tramp debug buffers."
+They are completed by `M-x TAB' only in Tramp debug buffers."
   (declare (tramp-suppress-trace t))
   (with-current-buffer buffer
     (string-equal
@@ -190,13 +192,13 @@ They are completed by \"M-x TAB\" only in Tramp debug buffers."
   "Get the debug file name for VEC."
   (declare (tramp-suppress-trace t))
   (expand-file-name
-   (tramp-compat-string-replace "/" " " (tramp-debug-buffer-name vec))
+   (string-replace "/" " " (tramp-debug-buffer-name vec))
    tramp-compat-temporary-file-directory))
 
 (defun tramp-trace-buffer-name (vec)
   "A name for the trace buffer for VEC."
   (declare (tramp-suppress-trace t))
-   (tramp-compat-string-replace "*debug" "*trace" (tramp-debug-buffer-name vec)))
+  (string-replace "*debug" "*trace" (tramp-debug-buffer-name vec)))
 
 (defvar tramp-trace-functions nil
   "A list of non-Tramp functions to be traced with `tramp-verbose' > 10.")
@@ -357,7 +359,9 @@ This function is meant for debugging purposes."
   (let ((tramp-verbose (if force 10 tramp-verbose)))
     (when (>= tramp-verbose 10)
       (tramp-message
-       vec-or-proc 10 "\n%s" (with-output-to-string (backtrace))))))
+       ;; In batch-mode, we want to see it on stderr.
+       vec-or-proc (if (and force noninteractive) 1 10)
+       "\n%s" (with-output-to-string (backtrace))))))
 
 (defsubst tramp-error (vec-or-proc signal fmt-string &rest arguments)
   "Emit an error.
@@ -466,8 +470,7 @@ to `tramp-message'."
   (declare (tramp-suppress-trace t))
   (let (signal-hook-function)
     (apply 'tramp-message vec-or-proc 2 fmt-string arguments)
-    (display-warning
-     'tramp (apply #'format-message fmt-string arguments) :warning)))
+    (lwarn 'tramp :warning fmt-string arguments)))
 
 (defun tramp-test-message (fmt-string &rest arguments)
   "Emit a Tramp message according `default-directory'."

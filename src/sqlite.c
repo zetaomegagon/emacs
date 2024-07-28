@@ -646,6 +646,17 @@ sqlite_exec (sqlite3 *sdb, const char *query)
   return Qt;
 }
 
+DEFUN ("sqlite-execute-batch", Fsqlite_execute_batch, Ssqlite_execute_batch, 2, 2, 0,
+       doc: /* Execute multiple SQL STATEMENTS in DB.
+STATEMENTS is a string containing 0 or more SQL statements.  */)
+  (Lisp_Object db, Lisp_Object statements)
+{
+  check_sqlite (db, false);
+  CHECK_STRING (statements);
+  Lisp_Object encoded = encode_string (statements);
+  return sqlite_exec (XSQLITE (db)->db, SSDATA (encoded));
+}
+
 DEFUN ("sqlite-transaction", Fsqlite_transaction, Ssqlite_transaction, 1, 1, 0,
        doc: /* Start a transaction in DB.  */)
   (Lisp_Object db)
@@ -689,7 +700,7 @@ MODULE should be the name of an SQlite module's file, a
 shared library in the system-dependent format and having a
 system-dependent file-name extension.
 
-Only modules on Emacs' list of allowed modules can be loaded.  */)
+Only modules on Emacs's list of allowed modules can be loaded.  */)
   (Lisp_Object db, Lisp_Object module)
 {
   check_sqlite (db, false);
@@ -711,6 +722,7 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
     "rtree",
     "sha1",
     "uuid",
+    "vec0",
     "vector0",
     "vfslog",
     "vss0",
@@ -866,6 +878,7 @@ syms_of_sqlite (void)
   defsubr (&Ssqlite_close);
   defsubr (&Ssqlite_execute);
   defsubr (&Ssqlite_select);
+  defsubr (&Ssqlite_execute_batch);
   defsubr (&Ssqlite_transaction);
   defsubr (&Ssqlite_commit);
   defsubr (&Ssqlite_rollback);

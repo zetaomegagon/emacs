@@ -757,7 +757,7 @@ window sizes" (Lisp value 'ignore').
 
 This can happen if your Emacs is configured to convert PDF to SVG for
 display, and the version of the MuPDF package you have installed has a
-a known bug, whereby it sometimes produces invalid SVG images.
+known bug, whereby it sometimes produces invalid SVG images.
 Version 1.21 of MuPDF is known to be affected.
 
 The solution is either to upgrade or downgrade to a version of MuPDF
@@ -976,6 +976,8 @@ to take advantage of.
 * Runtime problems related to font handling
 
 ** Some fonts are detected but not usable under Xft.
+
+We understand that these issues were resolved in Xft release 2.3.6.
 
 Some fonts might not be usable under Emacs even though they show up in
 the font family list when Emacs is built with Xft.  This is because
@@ -3468,7 +3470,29 @@ file; for example:
       "/usr/local/opt/libgccjit/lib/gcc/11"
       "/usr/local/opt/gcc/lib/gcc/11/gcc/x86_64-apple-darwin20/11.2.0") ":"))
 
-* Runtime problems specific to PGTK
+* Runtime problems specific to PGTK build
+
+** Whether a display server is available cannot be automatically detected.
+
+When started with no arguments from a text terminal and in an
+environment where no display server is specified, Emacs will print:
+
+  $ emacs
+  (emacs:3988): Gtk-WARNING **: 19:19:10.887: cannot open display:
+
+and exit.  This is a byproduct of GTK's not providing any means of
+probing for a display connection before committing to opening one, and
+cannot be addressed by Emacs.  Rather, users must expressly request a
+text mode session:
+
+  $ emacs -nw
+  [...]
+
+** SECONDARY selections don't work on Wayland.
+
+This is because the SECONDARY selection is not implemented by the
+Wayland compositor being used.  A workaround is to use other kinds of
+selections.
 
 ** Giant tool bar icons are displayed in some cases
 
@@ -3666,7 +3690,7 @@ result that the next redisplay recenters the window around this outdated
 position.  There is no solution but installing a more
 cooperative--and preferably free--input method.
 
-** The default input method sometimes performs edits out of place in large buffers.
+** The default input method performs edits elsewhere than point in large buffers.
 
 When first reactivated in a window after having been dismissed, certain
 heuristics applied by the "Android Keyboard (AOSP)" input method to
@@ -3679,6 +3703,14 @@ might be wildly removed from the current insertion point.  This is a bug
 in the input method that can be easily reproduced by inserting lengthy
 documents into any text editor, with no real solution except avoiding
 edit suggestions from recently-reactivated input methods.
+
+** The F3 key appears to be spontaneously activated.
+
+It is possible that this is a product of your inadvertently contacting
+the back-facing fingerprint sensor, which generates F3 key events on
+devices manufactured by OnePlus and possibly others.  Sadly, to the best
+of our knowledge such events cannot be distinguished from legitimate
+keypresses.
 
 * Build-time problems
 
@@ -4333,14 +4365,14 @@ for menus.  Help text is only available in later versions of Windows.
 This character seems to be trapped by the kernel in Windows 95.
 You can enter M-f6 by typing ESC f6.
 
-*** MS-Windows 95/98/ME: subprocesses do not terminate properly.
+*** MS-Windows 98/ME: subprocesses do not terminate properly.
 
 This is a limitation of the Operating System, and can cause problems
 when shutting down Windows.  Ensure that all subprocesses are exited
 cleanly before exiting Emacs.  For more details, see the Emacs on MS
 Windows FAQ (info manual "efaq-w32").
 
-*** MS-Windows 95/98/ME: crashes when Emacs invokes non-existent programs.
+*** MS-Windows 98/ME: crashes when Emacs invokes non-existent programs.
 
 When a program you are trying to run is not found on the PATH,
 Windows might respond by crashing or locking up your system.  In

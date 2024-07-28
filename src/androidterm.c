@@ -33,6 +33,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "textconv.h"
 #include "coding.h"
 #include "pdumper.h"
+#include "keymap.h"
 
 /* This is a chain of structures for all the X displays currently in
    use.  */
@@ -925,11 +926,11 @@ handle_one_android_event (struct android_display_info *dpyinfo,
 	    XSETFRAME (inev.ie.frame_or_window, f);
 	  }
 
-      if (f && FRAME_OUTPUT_DATA (f)->need_cursor_updates)
-	{
-	  w = XWINDOW (f->selected_window);
-	  android_set_preeditarea (w, w->cursor.x, w->cursor.y);
-	}
+	if (f && FRAME_OUTPUT_DATA (f)->need_cursor_updates)
+	  {
+	    w = XWINDOW (f->selected_window);
+	    android_set_preeditarea (w, w->cursor.x, w->cursor.y);
+	  }
       }
 
       goto OTHER;
@@ -1278,7 +1279,12 @@ handle_one_android_event (struct android_display_info *dpyinfo,
             {
               expose_frame (f, event->xexpose.x, event->xexpose.y,
 			    event->xexpose.width, event->xexpose.height);
-	      show_back_buffer (f);
+
+	      /* Do not display the back buffer if F is yet being
+		 updated, as this might trigger premature bitmap
+		 reconfiguration.  */
+	      if (FRAME_ANDROID_COMPLETE_P (f))
+		show_back_buffer (f);
 	    }
         }
 
@@ -5229,11 +5235,11 @@ android_text_to_string (JNIEnv *env, char *buffer, ptrdiff_t n,
          surrogate pairs.
 
          The hack used by Emacs is to simply replace each multibyte
-         character that doesn't fit in a jchar with the NULL
-         character.  */
+         character that doesn't fit in a jchar with the Unicode
+         replacement character.  */
 
       if (encoded >= 65536)
-	encoded = 0;
+	encoded = 0xfffd;
 
       utf16[index++] = encoded;
       buffer += BYTES_BY_CHAR_HEAD (*buffer);
@@ -6641,7 +6647,7 @@ android_term_init (void)
   dpyinfo->resx = android_pixel_density_x;
   dpyinfo->resy = android_pixel_density_y;
   dpyinfo->font_resolution = android_scaled_pixel_density;
-#endif /* ANDROID_STUBIFY */
+#endif /* !ANDROID_STUBIFY */
 
   /* https://lists.gnu.org/r/emacs-devel/2015-11/msg00194.html  */
   dpyinfo->smallest_font_height = 1;
@@ -6679,7 +6685,14 @@ android_term_init (void)
 #ifndef ANDROID_STUBIFY
   sem_init (&edit_sem, false, 0);
   register_textconv_interface (&text_conversion_interface);
-#endif
+#endif /* !ANDROID_STUBIFY */
+
+  /* Binding certain key events in the terminal's `input-decode-map',
+     which being keyboard-local is not accessible from any point in
+     android-win.el.  */
+  Fdefine_key (KVAR (terminal->kboard, Vinput_decode_map),
+	       make_vector (1, Qselect), make_vector (1, Qreturn),
+	       Qnil);
 }
 
 
@@ -6907,6 +6920,10 @@ for instance, `early-init.el', or they will be of no effect.  */);
   Fput (Qmeta, Qmodifier_value, make_fixnum (meta_modifier));
   DEFSYM (Qsuper, "super");
   Fput (Qsuper, Qmodifier_value, make_fixnum (super_modifier));
+
+  /* Key symbols.  */
+  DEFSYM (Qselect, "select");
+  DEFSYM (Qreturn, "return");
 }
 
 void

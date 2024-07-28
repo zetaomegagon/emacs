@@ -295,12 +295,8 @@ Returns nil if INPUT is prepended by blank space, otherwise non-nil."
   (setq-local eshell-hist--new-items 0)
 
   (setq-local eshell-history-ring nil)
-  (if (minibuffer-window-active-p (selected-window))
-      (progn
-        (setq-local eshell-history-append t)
-        (add-hook 'minibuffer-exit-hook #'eshell-add-command-to-history nil t))
-    (if eshell-history-file-name
-	(eshell-read-history nil t)))
+  (when eshell-history-file-name
+    (eshell-read-history nil t))
 
   (unless eshell-history-ring
     (setq eshell-history-ring (make-ring eshell-history-size)))
@@ -333,7 +329,6 @@ Returns nil if INPUT is prepended by blank space, otherwise non-nil."
 
 (defun eshell/history (&rest args)
   "List in help buffer the buffer's input history."
-  (eshell-init-print-buffer)
   (eshell-eval-using-options
    "history" args
    '((?r "read" nil read-history
@@ -370,12 +365,12 @@ unless a different file is specified on the command line.")
        (let* ((index (1- (or length (ring-length eshell-history-ring))))
 	      (ref (- (ring-length eshell-history-ring) index)))
 	 ;; We have to build up a list ourselves from the ring vector.
-	 (while (>= index 0)
-	   (eshell-buffered-print
-	    (format "%5d  %s\n" ref (eshell-get-history index)))
-	   (setq index (1- index)
-		 ref (1+ ref)))))))
-   (eshell-flush)
+         (eshell-with-buffered-print
+           (while (>= index 0)
+             (eshell-buffered-print
+              (format "%5d  %s\n" ref (eshell-get-history index)))
+             (setq index (1- index)
+                   ref (1+ ref))))))))
    nil))
 
 (defun eshell-put-history (input &optional ring at-beginning)
@@ -411,18 +406,6 @@ input."
     (eshell-put-history input))
   (setq eshell-save-history-index eshell-history-index)
   (setq eshell-history-index nil))
-
-(defun eshell-add-command-to-history ()
-  "Add the command entered at `eshell-command's prompt to the history ring.
-The command is added to the input history ring, if the value of
-variable `eshell-input-filter' returns non-nil when called on the
-command.
-
-This function is supposed to be called from the minibuffer, presumably
-as a `minibuffer-exit-hook'."
-  (eshell-add-input-to-history
-   (buffer-substring (minibuffer-prompt-end) (point-max)))
-  (eshell--save-history))
 
 (defun eshell-add-to-history ()
   "Add last Eshell command to the history ring.

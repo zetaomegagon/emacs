@@ -35,9 +35,9 @@ NDK_CXX_FLAG_$(LOCAL_MODULE) :=
 
 $(info Building $(build_kind))
 $(info $(LOCAL_MODULE))
-$(info $(addprefix $(LOCAL_PATH)/,$(LOCAL_SRC_FILES) $(LOCAL_SRC_FILES$(EMACS_ABI))))
+$(info $(addprefix $(LOCAL_PATH:%/=%)/,$(LOCAL_SRC_FILES) $(LOCAL_SRC_FILES$(EMACS_ABI))))
 
-ifeq ($(findstring lib,$(LOCAL_MODULE)),lib)
+ifeq ($(filter-out lib%,$(LOCAL_MODULE)),)
 NDK_SO_NAMES = $(LOCAL_MODULE)_emacs.so
 else
 NDK_SO_NAMES = lib$(LOCAL_MODULE)_emacs.so
@@ -50,7 +50,7 @@ $$(foreach module,$$(filter-out $$(SYSTEM_LIBRARIES), $$(NDK_$(1)_STATIC_LIBRARI
 endef
 
 define add-so-name
-ifeq ($(findstring lib,$(1)),lib)
+ifeq ($(filter-out lib%,$(1)),)
 NDK_SO_NAME = $(1)_emacs.so
 else
 NDK_SO_NAME = lib$(1)_emacs.so
@@ -106,7 +106,7 @@ endif
 $(info $(foreach dir,$(NDK_INCLUDES),-I$(dir)))
 $(info $(LOCAL_EXPORT_CFLAGS))
 
-$(info $(LOCAL_EXPORT_LDFLAGS) $(abspath $(addprefix $(NDK_BUILD_DIR)/,$(NDK_A_NAMES))) -L$(abspath $(NDK_BUILD_DIR)) $(foreach soname,$(NDK_SO_NAMES),-l:$(soname)))
+$(info $(LOCAL_EXPORT_LDFLAGS) $(abspath $(addprefix $(NDK_BUILD_DIR:%/=%)/,$(NDK_A_NAMES))) -L$(abspath $(NDK_BUILD_DIR)) $(foreach soname,$(NDK_SO_NAMES),-l:$(soname)))
 $(info $(NDK_SO_NAMES))
 $(info $(NDK_CXX_FLAG_$(LOCAL_MODULE)))
 $(info End)

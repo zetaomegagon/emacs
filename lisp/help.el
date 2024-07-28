@@ -883,7 +883,10 @@ If INSERT (the prefix arg) is non-nil, insert the message in the buffer."
       (let ((otherstring (help--key-description-fontified untranslated)))
 	(if (equal string otherstring)
 	    string
-	  (format "%s (translated from %s)" string otherstring))))))
+          (if-let ((char-name (and (length= string 1)
+                                   (char-to-name (aref string 0)))))
+              (format "%s '%s' (translated from %s)" string char-name otherstring)
+            (format "%s (translated from %s)" string otherstring)))))))
 
 (defun help--binding-undefined-p (defn)
   (or (null defn) (integerp defn) (equal defn #'undefined)))
@@ -1202,7 +1205,7 @@ current buffer."
 	    (describe-function-1 defn)))))))
 
 (defun search-forward-help-for-help ()
-  "Search forward in the help-for-help window.
+  "Search forward in the `help-for-help' window.
 This command is meant to be used after issuing the \\[help-for-help] command."
   (interactive)
   (unless (get-buffer help-for-help-buffer-name)
@@ -1664,7 +1667,10 @@ Return nil if the key sequence is too long."
 (defun help--describe-command (definition &optional translation)
   (cond ((or (stringp definition) (vectorp definition))
          (if translation
-             (insert (key-description definition nil) "\n")
+             (insert (concat (key-description definition nil)
+                             (when-let ((char-name (char-to-name (aref definition 0))))
+                               (format "\t%s" char-name))
+                             "\n"))
            ;; These should be rare nowadays, replaced by `kmacro's.
            (insert "Keyboard Macro\n")))
         ((keymapp definition)

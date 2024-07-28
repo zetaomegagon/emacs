@@ -32,9 +32,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef ANDROID_STUBIFY
 
-/* Some kind of reference count for the image cache.  */
-static ptrdiff_t image_cache_refcount;
-
 /* The frame of the currently visible tooltip, or nil if none.  */
 static Lisp_Object tip_frame;
 
@@ -654,17 +651,6 @@ unwind_create_frame (Lisp_Object frame)
   /* If frame is ``official'', nothing to do.  */
   if (NILP (Fmemq (frame, Vframe_list)))
     {
-      /* If the frame's image cache refcount is still the same as our
-	 private shadow variable, it means we are unwinding a frame
-	 for which we didn't yet call init_frame_faces, where the
-	 refcount is incremented.  Therefore, we increment it here, so
-	 that free_frame_faces, called in x_free_frame_resources
-	 below, will not mistakenly decrement the counter that was not
-	 incremented yet to account for this new frame.  */
-      if (FRAME_IMAGE_CACHE (f) != NULL
-	  && FRAME_IMAGE_CACHE (f)->refcount == image_cache_refcount)
-	FRAME_IMAGE_CACHE (f)->refcount++;
-
       android_free_frame_resources (f);
       free_glyphs (f);
       return Qt;
@@ -943,10 +929,6 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   register_font_driver (&androidfont_driver, f);
   register_font_driver (&android_sfntfont_driver, f);
-
-  image_cache_refcount = (FRAME_IMAGE_CACHE (f)
-			  ? FRAME_IMAGE_CACHE (f)->refcount
-			  : 0);
 
   gui_default_parameter (f, parms, Qfont_backend, Qnil,
                          "fontBackend", "FontBackend", RES_TYPE_STRING);
@@ -1392,6 +1374,7 @@ DEFUN ("x-display-mm-width", Fx_display_mm_width, Sx_display_mm_width,
   error ("Android cross-compilation stub called!");
   return Qnil;
 #else
+  check_android_display_info (terminal);
   return make_fixnum (android_get_mm_width ());
 #endif
 }
@@ -1404,6 +1387,7 @@ DEFUN ("x-display-mm-height", Fx_display_mm_height, Sx_display_mm_height,
   error ("Android cross-compilation stub called!");
   return Qnil;
 #else
+  check_android_display_info (terminal);
   return make_fixnum (android_get_mm_height ());
 #endif
 }
@@ -1487,6 +1471,7 @@ Internal use only, use `display-monitor-attributes-list' instead.  */)
 #else
   struct MonitorInfo monitor;
 
+  check_android_display_info (terminal);
   memset (&monitor, 0, sizeof monitor);
   monitor.geom.width = android_get_screen_width ();
   monitor.geom.height = android_get_screen_height ();
@@ -1755,7 +1740,7 @@ android_frame_list_z_order (struct android_display_info *dpyinfo,
 
 DEFUN ("android-frame-list-z-order", Fandroid_frame_list_z_order,
        Sandroid_frame_list_z_order, 0, 1, 0,
-       doc: /* Return list of Emacs' frames, in Z (stacking) order.
+       doc: /* Return list of Emacs's frames, in Z (stacking) order.
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be either a frame or a display name (a string).  If
 omitted or nil, that stands for the selected frame's display.  Return
@@ -2022,9 +2007,6 @@ android_create_tip_frame (struct android_display_info *dpyinfo,
 
   register_font_driver (&androidfont_driver, f);
   register_font_driver (&android_sfntfont_driver, f);
-
-  image_cache_refcount
-    = FRAME_IMAGE_CACHE (f) ? FRAME_IMAGE_CACHE (f)->refcount : 0;
 
   gui_default_parameter (f, parms, Qfont_backend, Qnil,
                          "fontBackend", "FontBackend", RES_TYPE_STRING);
@@ -2564,9 +2546,16 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   /* Garbage the tip frame too.  */
   SET_FRAME_GARBAGED (tip_f);
 
+  /* Block input around `update_single_window' and `flush_frame', lest a
+     ConfigureNotify and Expose event arrive during the update, and set
+     flags, e.g. garbaged_p, that are cleared once the update completes,
+     leaving the requested exposure or configuration outstanding.  */
+  block_input ();
   w->must_be_updated_p = true;
   update_single_window (w);
   flush_frame (tip_f);
+  unblock_input ();
+
   set_buffer_internal_1 (old_buffer);
   unbind_to (count_1, Qnil);
   windows_or_buffers_changed = old_windows_or_buffers_changed;
@@ -3284,6 +3273,11 @@ External storage on Android encompasses the `/sdcard' and
 absent these permissions.  */)
   (void)
 {
+  /* Implement a rather undependable fallback when no GUI is
+     available.  */
+  if (!android_init_gui)
+    return Ffile_accessible_directory_p (build_string ("/sdcard"));
+
   return android_external_storage_available_p () ? Qt : Qnil;
 }
 
@@ -3298,6 +3292,9 @@ Use `android-external-storage-available-p' (which see) to verify
 whether Emacs has actually received such access permissions.  */)
   (void)
 {
+  if (!android_init_gui)
+    return Qnil;
+
   android_request_storage_access ();
   return Qnil;
 }

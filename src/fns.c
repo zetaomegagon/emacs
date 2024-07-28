@@ -117,7 +117,7 @@ See Info node `(elisp)Random Numbers' for more details.  */)
 ptrdiff_t
 list_length (Lisp_Object list)
 {
-  intptr_t i = 0;
+  ptrdiff_t i = 0;
   FOR_EACH_TAIL (list)
     i++;
   CHECK_LIST_END (list, list);
@@ -167,7 +167,7 @@ it returns 0.  If LIST is circular, it returns an integer that is at
 least the number of distinct elements.  */)
   (Lisp_Object list)
 {
-  intptr_t len = 0;
+  ptrdiff_t len = 0;
   FOR_EACH_TAIL_SAFE (list)
     len++;
   return make_fixnum (len);
@@ -248,7 +248,7 @@ A proper list is neither circular nor dotted (i.e., its last cdr is nil).  */
        attributes: const)
   (Lisp_Object object)
 {
-  intptr_t len = 0;
+  ptrdiff_t len = 0;
   Lisp_Object last_tail = object;
   Lisp_Object tail = object;
   FOR_EACH_TAIL_SAFE (tail)
@@ -292,7 +292,8 @@ Letter-case is significant, but text properties are ignored. */)
   ptrdiff_t x, y, lastdiag, olddiag;
 
   USE_SAFE_ALLOCA;
-  ptrdiff_t *column = SAFE_ALLOCA ((len1 + 1) * sizeof (ptrdiff_t));
+  ptrdiff_t *column;
+  SAFE_NALLOCA (column, 1, len1 + 1);
   for (y = 0; y <= len1; y++)
     column[y] = y;
 
@@ -2309,12 +2310,12 @@ See also the function `nreverse', which is used more often.  */)
     }
   else if (BOOL_VECTOR_P (seq))
     {
-      ptrdiff_t i;
       EMACS_INT nbits = bool_vector_size (seq);
 
-      new = make_uninit_bool_vector (nbits);
-      for (i = 0; i < nbits; i++)
-	bool_vector_set (new, i, bool_vector_bitref (seq, nbits - i - 1));
+      new = make_clear_bool_vector (nbits, true);
+      for (ptrdiff_t i = 0; i < nbits; i++)
+	if (bool_vector_bitref (seq, nbits - i - 1))
+	  bool_vector_set (new, i, true);
     }
   else if (STRINGP (seq))
     {
@@ -3012,6 +3013,25 @@ bool_vector_cmp (Lisp_Object a, Lisp_Object b)
   return (d & aw) ? 1 : -1;
 }
 
+/* Return -1 if a<b, 1 if a>b, 0 if a=b or if b is NaN (a must be a fixnum).  */
+static inline int
+fixnum_float_cmp (EMACS_INT a, double b)
+{
+  double fa = (double)a;
+  if (fa == b)
+    {
+      /* This doesn't mean that a=b because the conversion may have rounded.
+	 However, b must be an integer that fits in an EMACS_INT,
+	 because |b| ≤ 2|a| and EMACS_INT has at least one bit more than
+	 needed to represent any fixnum.
+	 Thus we can compare in the integer domain instead.  */
+      EMACS_INT ib = b;		/* lossless conversion */
+      return a < ib ? -1 : a > ib;
+    }
+  else
+    return fa < b ? -1 : fa > b;   /* return 0 if b is NaN */
+}
+
 /* Return -1, 0 or 1 to indicate whether a<b, a=b or a>b in the sense of value<.
    In particular 0 does not mean equality in the sense of Fequal, only
    that the arguments cannot be ordered yet they can be compared (same
@@ -3033,9 +3053,9 @@ value_cmp (Lisp_Object a, Lisp_Object b, int maxdepth)
       {
 	EMACS_INT ia = XFIXNUM (a);
 	if (FIXNUMP (b))
-	  return ia < XFIXNUM (b) ? -1 : 1;   /* we know that a≠b */
+	  return ia < XFIXNUM (b) ? -1 : 1;   /* we know that a != b */
 	if (FLOATP (b))
-	  return ia < XFLOAT_DATA (b) ? -1 : ia > XFLOAT_DATA (b);
+	  return fixnum_float_cmp (ia, XFLOAT_DATA (b));
 	if (BIGNUMP (b))
 	  return -mpz_sgn (*xbignum_val (b));
       }
@@ -3058,7 +3078,7 @@ value_cmp (Lisp_Object a, Lisp_Object b, int maxdepth)
       goto type_mismatch;
 
     case Lisp_Cons:
-      /* FIXME: Optimise for difference in the first element? */
+      /* FIXME: Optimize for difference in the first element? */
       FOR_EACH_TAIL (b)
 	{
 	  int cmp = value_cmp (XCAR (a), XCAR (b), maxdepth - 1);
@@ -3176,7 +3196,7 @@ value_cmp (Lisp_Object a, Lisp_Object b, int maxdepth)
 	if (FLOATP (b))
 	  return fa < XFLOAT_DATA (b) ? -1 : fa > XFLOAT_DATA (b);
 	if (FIXNUMP (b))
-	  return fa < XFIXNUM (b) ? -1 : fa > XFIXNUM (b);
+	  return -fixnum_float_cmp (XFIXNUM (b), fa);
 	if (BIGNUMP (b))
 	  {
 	    if (isnan (fa))
@@ -5359,7 +5379,7 @@ hash_string (char const *ptr, ptrdiff_t len)
 	  hash = sxhash_combine (hash, c);
 	}
       while (p + sizeof hash <= end);
-      /* Hash the last wordful of bytes in the string, because that is
+      /* Hash the last word's worth of bytes in the string, because that is
          is often the part where strings differ.  This may cause some
          bytes to be hashed twice but we assume that's not a big problem.  */
       EMACS_UINT c;
@@ -6301,7 +6321,7 @@ secure_hash (Lisp_Object algorithm, Lisp_Object object, Lisp_Object start,
   const char *input = extract_data_from_object (spec, &start_byte, &end_byte);
 
   if (input == NULL)
-    error ("secure_hash: failed to extract data from object, aborting!");
+    error ("secure_hash: Failed to extract data from object, aborting!");
 
   if (EQ (algorithm, Qmd5))
     {
@@ -6336,7 +6356,7 @@ secure_hash (Lisp_Object algorithm, Lisp_Object object, Lisp_Object start,
   else
     error ("Invalid algorithm arg: %s", SDATA (Fsymbol_name (algorithm)));
 
-  /* allocate 2 x digest_size so that it can be re-used to hold the
+  /* allocate 2 x digest_size so that it can be reused to hold the
      hexified value */
   digest = make_uninit_string (digest_size * 2);
 

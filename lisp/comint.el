@@ -105,7 +105,7 @@
 (require 'ansi-color)
 (require 'ansi-osc)
 (require 'regexp-opt)                   ;For regexp-opt-charset.
-(eval-when-compile (require 'subr-x))
+(require 'subr-x)
 
 ;;; Buffer Local Variables:
 ;;============================================================================
@@ -425,6 +425,11 @@ This is used by `comint-watch-for-password-prompt'."
   :version "29.1"
   :type 'regexp
   :group 'comint)
+
+(defvar comint-password-prompt-max-length 256
+  "The maximum amount of text to examine when matching password prompts.
+This is used by `comint-watch-for-password-prompt' to reduce the amount
+of time spent searching for password prompts.")
 
 ;; Here are the per-interpreter hooks.
 (defvar comint-get-old-input (function comint-get-old-input-default)
@@ -1051,6 +1056,7 @@ See also `comint-input-ignoredups' and `comint-write-input-ring'."
 		(ring-size (min 1500 comint-input-ring-size))
 		(ring (make-ring ring-size))
                 ;; Use possibly buffer-local values of these variables.
+                (ring-max-size comint-input-ring-size)
                 (ring-separator comint-input-ring-separator)
                 (ring-file-prefix comint-input-ring-file-prefix)
                 (history-ignore comint-input-history-ignore)
@@ -1061,7 +1067,7 @@ See also `comint-input-ignoredups' and `comint-write-input-ring'."
              ;; Watch for those date stamps in history files!
              (goto-char (point-max))
              (let (start end history)
-               (while (and (< count comint-input-ring-size)
+               (while (and (< count ring-max-size)
                            (re-search-backward ring-separator nil t)
                            (setq end (match-beginning 0)))
                  (goto-char (if (re-search-backward ring-separator nil t)
@@ -1079,7 +1085,7 @@ See also `comint-input-ignoredups' and `comint-write-input-ring'."
 				(not (string-equal (ring-ref ring 0)
 						   history))))
 		   (when (= count ring-size)
-		     (ring-extend ring (min (- comint-input-ring-size ring-size)
+		     (ring-extend ring (min (- ring-max-size ring-size)
 					    ring-size))
 		     (setq ring-size (ring-size ring)))
 		   (ring-insert-at-beginning ring history)
@@ -2563,23 +2569,26 @@ to detect the need to (prompt and) send a password.  Ignores any
 carriage returns (\\r) in STRING.
 
 This function could be in the list `comint-output-filter-functions'."
-  (when (let ((case-fold-search t))
-	  (string-match comint-password-prompt-regexp
-                        (string-replace "\r" "" string)))
-    ;; Use `run-at-time' in order not to pause execution of the
-    ;; process filter with a minibuffer
-    (run-at-time
-     0 nil
-     (lambda (current-buf)
-       (with-current-buffer current-buf
-         (let ((comint--prompt-recursion-depth
-                (1+ comint--prompt-recursion-depth)))
-           (if (> comint--prompt-recursion-depth 10)
-               (message "Password prompt recursion too deep")
-             (when (get-buffer-process (current-buffer))
-               (comint-send-invisible
-                (string-trim string "[ \n\r\t\v\f\b\a]+" "\n+")))))))
-     (current-buffer))))
+  (let ((string (string-limit string comint-password-prompt-max-length t))
+        prompt)
+    (when (let ((case-fold-search t))
+            (string-match comint-password-prompt-regexp
+                          (string-replace "\r" "" string)))
+      (setq prompt (string-trim (match-string 0 string)
+                                "[ \n\r\t\v\f\b\a]+" "\n+"))
+      ;; Use `run-at-time' in order not to pause execution of the
+      ;; process filter with a minibuffer
+      (run-at-time
+       0 nil
+       (lambda (current-buf)
+         (with-current-buffer current-buf
+           (let ((comint--prompt-recursion-depth
+                  (1+ comint--prompt-recursion-depth)))
+             (if (> comint--prompt-recursion-depth 10)
+                 (message "Password prompt recursion too deep")
+               (when (get-buffer-process (current-buffer))
+                 (comint-send-invisible prompt))))))
+       (current-buffer)))))
 
 ;; Low-level process communication
 

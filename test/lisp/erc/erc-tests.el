@@ -164,15 +164,6 @@
 
     (advice-remove 'buffer-local-value 'erc-with-server-buffer)))
 
-(ert-deftest erc--with-dependent-type-match ()
-  (should (equal (macroexpand-1
-                  '(erc--with-dependent-type-match (repeat face) erc-match))
-                 '(backquote-list*
-                   'repeat :match (lambda (w v)
-                                    (require 'erc-match)
-                                    (widget-editable-list-match w v))
-                   '(face)))))
-
 (ert-deftest erc--doarray ()
   (let ((array "abcdefg")
         out)
@@ -1269,23 +1260,6 @@
       (should-not (erc--valid-local-channel-p "#chan"))
       (should (erc--valid-local-channel-p "&local")))))
 
-;; FIXME remove this because it serves no purpose.  See bug#71178.
-(ert-deftest erc--restore-initialize-priors ()
-  (unless (>= emacs-major-version 28)
-    (ert-skip "Lisp nesting exceeds `max-lisp-eval-depth'"))
-  (should (pcase (macroexpand-1 '(erc--restore-initialize-priors erc-my-mode
-                                   foo (ignore 1 2 3)
-                                   bar #'spam
-                                   baz nil))
-            (`(let* ((,p (or erc--server-reconnecting erc--target-priors))
-                     (,q (and ,p (alist-get 'erc-my-mode ,p))))
-                (unless (local-variable-if-set-p 'erc-my-mode)
-                  (error "Not a local minor mode var: %s" 'erc-my-mode))
-                (setq foo (if ,q (alist-get 'foo ,p) (ignore 1 2 3))
-                      bar (if ,q (alist-get 'bar ,p) #'spam)
-                      baz (if ,q (alist-get 'baz ,p) nil)))
-             t))))
-
 (ert-deftest erc--target-from-string ()
   (should (equal (erc--target-from-string "#chan")
                  #s(erc--target-channel "#chan" \#chan nil)))
@@ -1661,25 +1635,27 @@
   '("Stripping" "Padding"))
 
 (ert-deftest erc--check-prompt-input-for-multiline-blanks ()
-  (erc-tests-common-with-process-input-spy
-   (lambda (next)
-     (erc-tests-common-init-server-proc "sleep" "10")
-     (should-not erc-send-whitespace-lines)
-     (should erc-warn-about-blank-lines)
+  :tags '(:expensive-test)
+  (ert-with-message-capture messages
+    (erc-tests-common-with-process-input-spy
+     (lambda (next)
+       (erc-tests-common-init-server-proc "sleep" "300")
+       (should-not erc-send-whitespace-lines)
+       (should erc-warn-about-blank-lines)
 
-     (pcase-dolist (`((,wb ,sw) . ,ex) erc-tests--check-prompt-input--expect)
-       (let ((print-escape-newlines t)
-             (erc-warn-about-blank-lines (eq wb '+wb))
-             (erc-send-whitespace-lines (eq sw '+sw))
-             (samples '("" " " "\n" "\n " " \n" "\n\n"
-                        "a\n" "a\n " "a\n \nb")))
-         (setq ex `(,@ex (a) (a b)) ; baseline, same for all combos
-               samples `(,@samples "a" "a\nb"))
-         (dolist (input samples)
-           (insert input)
-           (ert-info ((format "Opts: %S, Input: %S, want: %S"
-                              (list wb sw) input (car ex)))
-             (ert-with-message-capture messages
+       (pcase-dolist (`((,wb ,sw) . ,ex) erc-tests--check-prompt-input--expect)
+         (let ((print-escape-newlines t)
+               (erc-warn-about-blank-lines (eq wb '+wb))
+               (erc-send-whitespace-lines (eq sw '+sw))
+               (samples '("" " " "\n" "\n " " \n" "\n\n"
+                          "a\n" "a\n " "a\n \nb")))
+           (setq ex `(,@ex (a) (a b)) ; baseline, same for all combos
+                 samples `(,@samples "a" "a\nb"))
+           (dolist (input samples)
+             (insert input)
+             (ert-info ((format "Opts: %S, Input: %S, want: %S"
+                                (list wb sw) input (car ex)))
+               (setq messages "")
                (pcase-exhaustive (pop ex)
                  ('err (let ((e (should-error (erc-send-current-line))))
                          (should (string-match (rx (| "trailing" "blank"))
@@ -1688,9 +1664,6 @@
                        (should-not (funcall next)))
                  ('nop (erc-send-current-line)
                        (should (equal (erc-user-input) input))
-                       (should-not (funcall next)))
-                 ('clr (erc-send-current-line)
-                       (should (string-empty-p (erc-user-input)))
                        (should-not (funcall next)))
                  ((and (pred consp) v)
                   (erc-send-current-line)
@@ -1705,8 +1678,8 @@
                       ('s (should (equal " \n" (car (funcall next)))))
                       ('a (should (equal "a\n" (car (funcall next)))))
                       ('b (should (equal "b\n" (car (funcall next)))))))
-                  (should-not (funcall next))))))
-           (delete-region erc-input-marker (point-max))))))))
+                  (should-not (funcall next)))))
+             (delete-region erc-input-marker (point-max)))))))))
 
 (ert-deftest erc--check-prompt-input-for-multiline-blanks/explanations ()
   (should erc-warn-about-blank-lines)

@@ -1298,9 +1298,14 @@ any that are missing.
 IDENTIFICATION can specify which part of the identification to
 return.  IDENTIFICATION can be the symbol `method', `user',
 `host', or `localname'.  Any other value is handled like nil and
-means to return the complete identification.  The string returned
-for IDENTIFICATION `localname' can differ depending on whether
-there is an existing connection.
+means to return the complete identification.
+
+If the remote FILE does not contain a method, a user name, or a host
+name, the respective default value is returned.  The string returned for
+IDENTIFICATION `localname' can differ depending on whether there is an
+existing connection.  File name handler specific implementations could
+support further IDENTIFICATION symbols; Tramp, for example, knows also
+the `hop' symbol.
 
 If CONNECTED is non-nil, return an identification only if FILE is
 located on a remote system and a connection is established to
@@ -3494,6 +3499,8 @@ we don't actually set it to the same mode the buffer already has."
      ;; Check for auto-mode-alist entry in dir-locals.
      (with-demoted-errors "Directory-local variables error: %s"
        ;; Note this is a no-op if enable-local-variables is nil.
+       ;; We don't use `hack-dir-local-get-variables-functions' here, because
+       ;; modes are specific to Emacs.
        (let* ((mode-alist (cdr (hack-dir-local--get-variables
                                 (lambda (key) (eq key 'auto-mode-alist))))))
          (set-auto-mode--apply-alist mode-alist keep-mode-if-same t)))
@@ -4769,7 +4776,7 @@ Return the new class name, which is a symbol named DIR."
 
 (defvar hack-dir-local-variables--warned-coding nil)
 
-(defun hack-dir-local--get-variables (predicate)
+(defun hack-dir-local--get-variables (&optional predicate)
   "Read per-directory local variables for the current buffer.
 Return a cons of the form (DIR . ALIST), where DIR is the
 directory name (maybe nil) and ALIST is an alist of all variables
@@ -4799,6 +4806,16 @@ PREDICATE is passed to `dir-locals-collect-variables'."
                (dir-locals-get-class-variables class)
                dir-name nil predicate))))))
 
+(defvar hack-dir-local-get-variables-functions
+  (list #'hack-dir-local--get-variables)
+  "Special hook to compute the set of dir-local variables.
+Every function is called without arguments and should return either
+a cons of the form (DIR . ALIST) or a (possibly empty) list of such conses,
+where ALIST is an alist of (VAR . VAL) settings.
+DIR should be a string (a directory name) and is used to obey
+`safe-local-variable-directories'.
+This hook is run after the major mode has been setup.")
+
 (defun hack-dir-local-variables ()
   "Read per-directory local variables for the current buffer.
 Store the directory-local variables in `dir-local-variables-alist'
@@ -4806,21 +4823,54 @@ and `file-local-variables-alist', without applying them.
 
 This does nothing if either `enable-local-variables' or
 `enable-dir-local-variables' are nil."
-  (let* ((items (hack-dir-local--get-variables nil))
-         (dir-name (car items))
-         (variables (cdr items)))
-    (when variables
-      (dolist (elt variables)
-        (if (eq (car elt) 'coding)
-            (unless hack-dir-local-variables--warned-coding
-              (setq hack-dir-local-variables--warned-coding t)
-              (display-warning 'files
-                               "Coding cannot be specified by dir-locals"))
-          (unless (memq (car elt) '(eval mode))
-            (setq dir-local-variables-alist
-                  (assq-delete-all (car elt) dir-local-variables-alist)))
-          (push elt dir-local-variables-alist)))
-      (hack-local-variables-filter variables dir-name))))
+  (let (items)
+    (when (and enable-local-variables
+	       enable-dir-local-variables
+	       (or enable-remote-dir-locals
+		   (not (file-remote-p (or (buffer-file-name)
+					   default-directory)))))
+      (run-hook-wrapped 'hack-dir-local-get-variables-functions
+                        (lambda (fun)
+                          (let ((res (funcall fun)))
+                            (cond
+                             ((null res))
+                             ((consp (car-safe res))
+                              (setq items (append res items)))
+                             (t (push res items))))
+			  nil)))
+    ;; Sort the entries from nearest dir to furthest dir.
+    (setq items (sort (nreverse items)
+                      :key (lambda (x) (length (car-safe x))) :reverse t))
+    ;; Filter out duplicates, preferring the settings from the nearest dir
+    ;; and from the first hook function.
+    (let ((seen nil))
+      (dolist (item items)
+        (when seen ;; Special case seen=nil since it's the most common case.
+          (setcdr item (seq-filter (lambda (vv) (not (memq (car-safe vv) seen)))
+                                   (cdr item))))
+        (setq seen (nconc (seq-difference (mapcar #'car (cdr item))
+                                          '(eval mode))
+                          seen))))
+    ;; Rather than a loop, maybe we should handle all the dirs
+    ;; "together", e.g.  prompting the user only once.  But if so, we'd
+    ;; probably want to also merge the prompt for file-local vars,
+    ;; which comes from the call to `hack-local-variables-filter' in
+    ;; `hack-local-variables'.
+    (dolist (item items)
+      (let ((dir-name (car item))
+            (variables (cdr item)))
+        (when variables
+          (dolist (elt variables)
+            (if (eq (car elt) 'coding)
+                (unless hack-dir-local-variables--warned-coding
+                  (setq hack-dir-local-variables--warned-coding t)
+                  (display-warning 'files
+                                   "Coding cannot be specified by dir-locals"))
+              (unless (memq (car elt) '(eval mode))
+                (setq dir-local-variables-alist
+                      (assq-delete-all (car elt) dir-local-variables-alist)))
+              (push elt dir-local-variables-alist)))
+          (hack-local-variables-filter variables dir-name))))))
 
 (defun hack-dir-local-variables-non-file-buffer ()
   "Apply directory-local variables to a non-file buffer.
@@ -5724,7 +5774,7 @@ We don't want excessive versions piling up, so there are variables
  `kept-old-versions', which tells Emacs how many oldest versions to keep,
  and `kept-new-versions', which tells how many newest versions to keep.
  Defaults are 2 old versions and 2 new.
-`dired-kept-versions' controls dired's clean-directory (.) command.
+`dired-kept-versions' controls Dired's clean-directory (.) command.
 If `delete-old-versions' is nil, system will query user
  before trimming versions.  Otherwise it does it silently.
 
@@ -6812,7 +6862,7 @@ For historical reasons, a value of nil means to use the default function.
 This should not be relied upon.
 
 For more information on how this variable is used by Auto Revert mode,
-see Info node `(emacs)Supporting additional buffers'.")
+see Info node `(elisp)Reverting'.")
 
 (defvar-local buffer-auto-revert-by-notification nil
   "Whether a buffer can rely on notification in Auto-Revert mode.
@@ -6847,6 +6897,24 @@ A customized `revert-buffer-function' need not run this hook.")
 ;; 2 arguments, so we have to use a dynbind variable to pass the
 ;; `preserve-modes' argument of `revert-buffer'.
 (defvar revert-buffer-preserve-modes)
+
+(defvar revert-buffer-restore-functions '(revert-buffer-restore-read-only)
+  "Functions to preserve any state during `revert-buffer'.
+The value of this variable is a list of functions that are called before
+reverting the buffer.  Each of these functions are called without
+arguments and should return a lambda that can restore a previous state
+of the buffer.  Then after reverting the buffer each of these lambdas
+will be called one by one in the order of the list to restore previous
+states of the buffer.  An example of the buffer state is keeping the
+buffer read-only, or keeping minor modes, etc.")
+
+(defun revert-buffer-restore-read-only ()
+  "Preserve read-only state for `revert-buffer'."
+  (when-let ((state (and (boundp 'read-only-mode--state)
+                         (list read-only-mode--state))))
+    (lambda ()
+      (setq buffer-read-only (car state))
+      (setq-local read-only-mode--state (car state)))))
 
 (defun revert-buffer (&optional ignore-auto noconfirm preserve-modes)
   "Replace current buffer text with the text of the visited file on disk.
@@ -6897,14 +6965,13 @@ preserve markers and overlays, at the price of being slower."
   (interactive (list (not current-prefix-arg)))
   (let ((revert-buffer-in-progress-p t)
         (revert-buffer-preserve-modes preserve-modes)
-        (state (and (boundp 'read-only-mode--state)
-                    (list read-only-mode--state))))
+        restore-functions)
+    (run-hook-wrapped 'revert-buffer-restore-functions
+                      (lambda (f) (push (funcall f) restore-functions) nil))
     ;; Return whatever 'revert-buffer-function' returns.
     (prog1 (funcall (or revert-buffer-function #'revert-buffer--default)
                     ignore-auto noconfirm)
-      (when state
-        (setq buffer-read-only (car state))
-        (setq-local read-only-mode--state (car state))))))
+      (mapc #'funcall (delq nil restore-functions)))))
 
 (defun revert-buffer--default (ignore-auto noconfirm)
   "Default function for `revert-buffer'.
@@ -7201,7 +7268,7 @@ auto-save file, if that is more recent than the visited file."
 	   (after-find-file nil nil t))
 	  (t (user-error "Recover-file canceled")))))
 
-(defvar dired-mode-hook)
+(declare-function dired-omit-mode "dired-x" (&optional arg))
 
 (defun recover-session ()
   "Recover auto save files from a previous Emacs session.
@@ -7222,14 +7289,12 @@ Then you'll be asked about a number of files to recover."
                                (concat "\\`" (regexp-quote nd)))
 			     t)
       (error "No previous sessions to recover")))
-  (require 'dired)
-  (let ((ls-lisp-support-shell-wildcards t)
-        ;; Ensure that we don't omit the session files as the user may
-        ;; have (as suggested by the manual) `dired-omit-mode' in the
-        ;; hook.
-        (dired-mode-hook (delete 'dired-omit-mode dired-mode-hook)))
+  (let ((ls-lisp-support-shell-wildcards t))
     (dired (concat auto-save-list-file-prefix "*")
-	   (concat (connection-local-value dired-listing-switches) " -t")))
+	   (concat (connection-local-value dired-listing-switches) " -t"))
+    ;; Toggle omitting, if it is on.
+    (when (bound-and-true-p dired-omit-mode)
+      (dired-omit-mode -1)))
   (use-local-map (nconc (make-sparse-keymap) (current-local-map)))
   (define-key (current-local-map) "\C-c\C-c" 'recover-session-finish)
   (save-excursion
@@ -8025,8 +8090,8 @@ Valid wildcards are `*', `?', `[abc]' and `[a-z]'."
 		  (end (insert-directory-adj-pos
 			(+ beg (read (current-buffer)))
 			error-lines)))
-	      (if (memq (char-after end) '(?\n ?\s))
-		  ;; End is followed by \n or by " -> ".
+	      (if (memq (char-after end) '(?\n ?\s ?/ ?* ?@ ?% ?= ?|))
+		  ;; End is followed by \n or by output of -F.
 		  (put-text-property start end 'dired-filename t)
 		;; It seems that we can't trust ls's output as to
 		;; byte positions of filenames.
@@ -8133,9 +8198,15 @@ normally equivalent short `-D' option is just passed on to
 				 "\\") ; Disregard Unix shell aliases!
 			       insert-directory-program
 			       " -d "
-			       (if (stringp switches)
-				   switches
-				 (mapconcat #'identity switches " "))
+			       ;; Quote switches that require quoting
+			       ;; such as "--block-size='1".  But don't
+			       ;; quote switches that use patterns
+			       ;; such as "--ignore=PATTERN" (bug#71935).
+			       (mapconcat #'shell-quote-wildcard-pattern
+					  (if (stringp switches)
+					      (split-string-and-unquote switches)
+					    switches)
+					  " ")
 			       " -- "
 			       ;; Quote some characters that have
 			       ;; special meanings in shells; but

@@ -117,7 +117,7 @@ initializing a new encrypted remote directory."
 ;; `command-completion-default-include-p'.
 (defun tramp-crypt-command-completion-p (symbol _buffer)
   "A predicate for Tramp interactive commands.
-They are completed by \"M-x TAB\" only when encryption support is enabled."
+They are completed by `M-x TAB' only when encryption support is enabled."
   (and tramp-crypt-enabled
        ;; `tramp-crypt-remove-directory' needs to be completed only in
        ;; case we have already encrypted directories.
@@ -831,15 +831,13 @@ WILDCARD is not supported."
   "Like `set-file-modes' for Tramp files."
   (tramp-skeleton-set-file-modes-times-uid-gid filename
     (let (tramp-crypt-enabled)
-      (tramp-compat-set-file-modes
-       (tramp-crypt-encrypt-file-name filename) mode flag))))
+      (set-file-modes (tramp-crypt-encrypt-file-name filename) mode flag))))
 
 (defun tramp-crypt-handle-set-file-times (filename &optional time flag)
   "Like `set-file-times' for Tramp files."
   (tramp-skeleton-set-file-modes-times-uid-gid filename
     (let (tramp-crypt-enabled)
-      (tramp-compat-set-file-times
-       (tramp-crypt-encrypt-file-name filename) time flag))))
+      (set-file-times (tramp-crypt-encrypt-file-name filename) time flag))))
 
 (defun tramp-crypt-handle-set-file-uid-gid (filename &optional uid gid)
   "Like `tramp-set-file-uid-gid' for Tramp files."

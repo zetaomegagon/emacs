@@ -535,7 +535,7 @@ From, and Cc against HEADER-REGEXP in
   "An alist for setting up `bug-reference-mode' in IRC modes.
 
 This takes action if `bug-reference-mode' is enabled in IRC
-channels using one of Emacs' IRC clients.  Currently, rcirc and
+channels using one of Emacs's IRC clients.  Currently, rcirc and
 ERC are supported.
 
 Each element has the form
@@ -712,7 +712,7 @@ set already.  This function sets the latter to nil
 buffer-locally, so that the auto-setup will always run.
 
 This is mostly intended for MUA modes like `rmail-mode' where the
-same buffer is re-used for different contexts."
+same buffer is reused for different contexts."
   (setq-local bug-reference-url-format nil)
   (bug-reference-mode))
 

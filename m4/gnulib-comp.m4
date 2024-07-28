@@ -77,6 +77,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module dtotimespec:
   # Code from module dup2:
   # Code from module eloop-threshold:
+  # Code from module endian:
   # Code from module environ:
   # Code from module errno:
   # Code from module euidaccess:
@@ -477,14 +478,7 @@ AC_DEFUN([gl_INIT],
     gl_PREREQ_PTHREAD_SIGMASK
   ])
   gl_SIGNAL_MODULE_INDICATOR([pthread_sigmask])
-  gl_FUNC_XATTR
-  AC_REQUIRE([gl_FUNC_ACL])
-  if test "$use_xattr" = yes; then
-    QCOPY_ACL_LIB="$LIB_XATTR"
-  else
-    QCOPY_ACL_LIB="$LIB_ACL"
-  fi
-  AC_SUBST([QCOPY_ACL_LIB])
+  gl_QCOPY_ACL
   gl_FUNC_READLINK
   gl_CONDITIONAL([GL_COND_OBJ_READLINK],
                  [test $HAVE_READLINK = 0 || test $REPLACE_READLINK = 1])
@@ -666,6 +660,7 @@ AC_DEFUN([gl_INIT],
   gl_gnulib_enabled_cloexec=false
   gl_gnulib_enabled_dirfd=false
   gl_gnulib_enabled_925677f0343de64b89a9f0c790b4104c=false
+  gl_gnulib_enabled_endian=false
   gl_gnulib_enabled_euidaccess=false
   gl_gnulib_enabled_getdelim=false
   gl_gnulib_enabled_getdtablesize=false
@@ -722,6 +717,15 @@ AC_DEFUN([gl_INIT],
   {
     if $gl_gnulib_enabled_925677f0343de64b89a9f0c790b4104c; then :; else
       gl_gnulib_enabled_925677f0343de64b89a9f0c790b4104c=true
+    fi
+  }
+  func_gl_gnulib_m4code_endian ()
+  {
+    if $gl_gnulib_enabled_endian; then :; else
+      gl_ENDIAN_H
+      gl_CONDITIONAL_HEADER([endian.h])
+      AC_PROG_MKDIR_P
+      gl_gnulib_enabled_endian=true
     fi
   }
   func_gl_gnulib_m4code_euidaccess ()
@@ -1036,6 +1040,9 @@ AC_DEFUN([gl_INIT],
   if case $host_os in mingw* | windows*) false;; *) test $HAVE_GETRANDOM = 0 || test $REPLACE_GETRANDOM = 1;; esac; then
     func_gl_gnulib_m4code_open
   fi
+  if $GL_GENERATE_IEEE754_H; then
+    func_gl_gnulib_m4code_endian
+  fi
   if test $REPLACE_MKTIME = 1; then
     func_gl_gnulib_m4code_verify
   fi
@@ -1071,6 +1078,7 @@ AC_DEFUN([gl_INIT],
   AM_CONDITIONAL([gl_GNULIB_ENABLED_cloexec], [$gl_gnulib_enabled_cloexec])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_dirfd], [$gl_gnulib_enabled_dirfd])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_925677f0343de64b89a9f0c790b4104c], [$gl_gnulib_enabled_925677f0343de64b89a9f0c790b4104c])
+  AM_CONDITIONAL([gl_GNULIB_ENABLED_endian], [$gl_gnulib_enabled_endian])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_euidaccess], [$gl_gnulib_enabled_euidaccess])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_getdelim], [$gl_gnulib_enabled_getdelim])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_getdtablesize], [$gl_gnulib_enabled_getdtablesize])
@@ -1312,6 +1320,8 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/dup2.c
   lib/dynarray.h
   lib/eloop-threshold.h
+  lib/endian.c
+  lib/endian.in.h
   lib/errno.in.h
   lib/euidaccess.c
   lib/execinfo.c
@@ -1506,6 +1516,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/double-slash-root.m4
   m4/dup2.m4
   m4/eealloc.m4
+  m4/endian_h.m4
   m4/environ.m4
   m4/errno_h.m4
   m4/euidaccess.m4
@@ -1605,6 +1616,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/strtoimax.m4
   m4/strtoll.m4
   m4/symlink.m4
+  m4/sys_cdefs_h.m4
   m4/sys_random_h.m4
   m4/sys_select_h.m4
   m4/sys_socket_h.m4
@@ -1627,7 +1639,6 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/vararrays.m4
   m4/warn-on-use.m4
   m4/warnings.m4
-  m4/wchar_t.m4
   m4/wint_t.m4
   m4/xattr.m4
   m4/zzgnulib.m4

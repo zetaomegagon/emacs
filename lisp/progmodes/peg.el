@@ -274,7 +274,7 @@
   "Actions collected along the current parse.
 Used at runtime for backtracking.  It's a list ((POS . THUNK)...).
 Each THUNK is executed at the corresponding POS.  Thunks are
-executed in a postprocessing step, not during parsing.")
+executed in a post-processing step, not during parsing.")
 
 (defvar peg--errors nil
   "Data keeping track of the rightmost parse failure location.
@@ -311,7 +311,7 @@ EXPS is a list of rules/expressions that failed.")
     `(lambda ,args . ,body)))
 
 ;; Sometimes (with-peg-rules ... (peg-run (peg ...))) is too
-;; longwinded for the task at hand, so `peg-parse' comes in handy.
+;; long-winded for the task at hand, so `peg-parse' comes in handy.
 (defmacro peg-parse (&rest pexs)
   "Match PEXS at point.
 PEXS is a sequence of PEG expressions, implicitly combined with `and'.
@@ -698,7 +698,7 @@ rulesets defined previously with `define-peg-ruleset'."
 (cl-defmethod peg--translate ((_ (eql guard)) exp) exp)
 
 (defvar peg-syntax-classes
-  '((whitespace ?-) (word ?w) (symbol ?s) (punctuation ?.)
+  '((whitespace ?-) (word ?w) (symbol ?_) (punctuation ?.)
     (open ?\() (close ?\)) (string ?\") (escape ?\\) (charquote ?/)
     (math ?$) (prefix ?') (comment ?<) (endcomment ?>)
     (comment-fence ?!) (string-fence ?|)))

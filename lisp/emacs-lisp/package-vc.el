@@ -3,6 +3,7 @@
 ;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
+;; Maintainer: Philip Kaludercic <philipk@posteo.net>
 ;; Keywords: tools
 
 ;; This file is part of GNU Emacs.
@@ -1024,6 +1025,13 @@ See also `vc-prepare-patch'."
   (let ((default-directory (package-desc-dir pkg-desc)))
     (vc-prepare-patch (package-maintainers pkg-desc t)
                       subject revisions)))
+
+(defun package-vc-log-incoming (pkg-desc)
+  "Call `vc-log-incoming' for the package PKG-DESC."
+  (interactive
+   (list (package-vc--read-package-desc "Incoming log for package: " t)))
+  (let ((default-directory (package-desc-dir pkg-desc)))
+    (call-interactively #'vc-log-incoming)))
 
 (provide 'package-vc)
 ;;; package-vc.el ends here

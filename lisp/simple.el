@@ -915,7 +915,9 @@ In programming language modes, this is the same as TAB.
 In some text modes, where TAB inserts a tab, this indents to the
 column specified by the function `current-left-margin'."
   (interactive "*")
-  (let ((pos (point))
+  ;; Use a marker because the call to 'newline' below could insert some
+  ;; text, e.g., if 'abbrev-mode' is turned on.
+  (let ((pos (point-marker))
         (electric-indent-mode nil))
     ;; Be careful to insert the newline before indenting the line.
     ;; Otherwise, the indentation might be wrong.
@@ -1827,8 +1829,7 @@ in *Help* buffer.  See also the command `describe-char'."
   (interactive "P")
   (let* ((char (following-char))
          (char-name (and what-cursor-show-names
-                         (or (get-char-code-property char 'name)
-                             (get-char-code-property char 'old-name))))
+                         (char-to-name char)))
          (char-name-fmt (if char-name
                             (format ", %s" char-name)
                           ""))
@@ -4060,7 +4061,7 @@ REASON describes the reason that the boundary is being added; see
 (defun undo-auto--boundaries (cause)
   "Check recently changed buffers and add a boundary if necessary.
 REASON describes the reason that the boundary is being added; see
-`undo-last-boundary' for more information."
+`undo-auto--last-boundary-cause' for more information."
   ;; (Bug #23785) All commands should ensure that there is an undo
   ;; boundary whether they have changed the current buffer or not.
   (when (eq cause 'command)
@@ -6702,28 +6703,53 @@ If ARG is zero, kill current line but exclude the trailing newline."
   (unless (eq last-command 'kill-region)
     (kill-new "")
     (setq last-command 'kill-region))
-  (cond ((zerop arg)
-	 ;; We need to kill in two steps, because the previous command
-	 ;; could have been a kill command, in which case the text
-	 ;; before point needs to be prepended to the current kill
-	 ;; ring entry and the text after point appended.  Also, we
-	 ;; need to use save-excursion to avoid copying the same text
-	 ;; twice to the kill ring in read-only buffers.
-	 (save-excursion
-	   (kill-region (point) (progn (forward-visible-line 0) (point))))
-	 (kill-region (point) (progn (end-of-visible-line) (point))))
-	((< arg 0)
-	 (save-excursion
-	   (kill-region (point) (progn (end-of-visible-line) (point))))
-	 (kill-region (point)
-		      (progn (forward-visible-line (1+ arg))
-			     (unless (bobp) (backward-char))
-			     (point))))
-	(t
-	 (save-excursion
-	   (kill-region (point) (progn (forward-visible-line 0) (point))))
-	 (kill-region (point)
-		      (progn (forward-visible-line arg) (point))))))
+  ;; - We need to kill in two steps, because the previous command
+  ;;   could have been a kill command, in which case the text before
+  ;;   point needs to be prepended to the current kill ring entry and
+  ;;   the text after point appended.
+  ;; - We need to be careful to avoid copying text twice to the kill
+  ;;   ring in read-only buffers.
+  ;; - We need to determine the boundaries of visible lines before we
+  ;;   do the first kill.  Otherwise `after-change-functions' may
+  ;;   change visibility (bug#65734).
+  (let (;; The beginning of both regions to kill
+        (regions-begin (point-marker))
+        ;; The end of the first region to kill.  Moreover, after
+        ;; evaluation of the value form, (point) will be the end of
+        ;; the second region to kill.
+        (region1-end (cond ((zerop arg)
+                            (prog1 (save-excursion
+                                     (forward-visible-line 0)
+                                     (point-marker))
+                              (end-of-visible-line)))
+	                   ((< arg 0)
+	                    (prog1 (save-excursion
+                                     (end-of-visible-line)
+                                     (point-marker))
+                              (forward-visible-line (1+ arg))
+	                      (unless (bobp) (backward-char))))
+	                   (t
+	                    (prog1 (save-excursion
+                                     (forward-visible-line 0)
+                                     (point-marker))
+	                      (forward-visible-line arg))))))
+    ;; - Pass the marker positions and not the markers themselves.
+    ;;   kill-region determines whether to prepend or append to a
+    ;;   previous kill by checking the direction of the region.  But
+    ;;   it deletes the content and hence moves the markers before
+    ;;   that.  That effectively makes every region delimited by
+    ;;   markers an (empty) forward region.
+    ;; - Make the first kill-region emit a non-local exit only if the
+    ;;   second kill-region below would not operate on a non-empty
+    ;;   region.
+    (let ((kill-read-only-ok (or kill-read-only-ok
+                                 (/= regions-begin (point)))))
+      (kill-region (marker-position regions-begin)
+                   (marker-position region1-end)))
+    (kill-region (marker-position regions-begin)
+                 (point))
+    (set-marker regions-begin nil)
+    (set-marker region1-end nil)))
 
 (defun forward-visible-line (arg)
   "Move forward by ARG lines, ignoring currently invisible newlines only.
@@ -8626,7 +8652,7 @@ are interchanged."
   (transpose-subr 'forward-word arg))
 
 (defun transpose-sexps-default-function (arg)
-  "Default method to locate a pair of points for transpose-sexps."
+  "Default method to locate a pair of points for `transpose-sexps'."
   ;; Here we should try to simulate the behavior of
   ;; (cons (progn (forward-sexp x) (point))
   ;;       (progn (forward-sexp (- x)) (point)))
@@ -10683,8 +10709,10 @@ Returns the newly created indirect buffer."
      (list (if current-prefix-arg
 	       (read-buffer "Name of indirect buffer: " (current-buffer)))
 	   t)))
-  (let ((pop-up-windows t))
-    (clone-indirect-buffer newname display-flag norecord)))
+  ;; For compatibility, don't display the buffer if display-flag is nil.
+  (let ((buffer (clone-indirect-buffer newname nil norecord)))
+    (when display-flag
+      (switch-to-buffer-other-window buffer norecord))))
 
 
 ;;; Handling of Backspace and Delete keys.
@@ -10705,10 +10733,10 @@ option's default value is set to t, so that Backspace can be used
 to delete backward, and Delete can be used to delete forward.
 
 If not running under a window system, customizing this option
-accomplishes a similar effect by mapping C-h, which is usually
-generated by the Backspace key, to DEL, and by mapping DEL to C-d
-via `keyboard-translate'.  The former functionality of C-h is
-available on the F1 key.  You should probably not use this
+accomplishes a similar effect by mapping \\`C-h', which is usually
+generated by the Backspace key, to \\`DEL', and by mapping \\`DEL' to
+\\`C-d' via `keyboard-translate'.  The former functionality of \\`C-h'
+is available on the F1 key.  You should probably not use this
 setting if you don't have both Backspace, Delete and F1 keys.
 
 Setting this variable with setq doesn't take effect.  Programmatically,
@@ -10751,27 +10779,27 @@ call `normal-erase-is-backspace-mode' (which see) instead."
 (define-minor-mode normal-erase-is-backspace-mode
   "Toggle the Erase and Delete mode of the Backspace and Delete keys.
 
-On window systems, when this mode is on, Delete is mapped to C-d
-and Backspace is mapped to DEL; when this mode is off, both
-Delete and Backspace are mapped to DEL.  (The remapping goes via
+On window systems, when this mode is on, Delete is mapped to \\`C-d'
+and Backspace is mapped to \\`DEL'; when this mode is off, both
+Delete and Backspace are mapped to \\`DEL'.  (The remapping goes via
 `local-function-key-map', so binding Delete or Backspace in the
 global or local keymap will override that.)
 
 In addition, on window systems, the bindings of C-Delete, M-Delete,
 C-M-Delete, C-Backspace, M-Backspace, and C-M-Backspace are changed in
 the global keymap in accordance with the functionality of Delete and
-Backspace.  For example, if Delete is remapped to C-d, which deletes
+Backspace.  For example, if Delete is remapped to \\`C-d', which deletes
 forward, C-Delete is bound to `kill-word', but if Delete is remapped
-to DEL, which deletes backward, C-Delete is bound to
+to \\`DEL', which deletes backward, C-Delete is bound to
 `backward-kill-word'.
 
 If not running on a window system, a similar effect is accomplished by
-remapping C-h (normally produced by the Backspace key) and DEL via
-`keyboard-translate': if this mode is on, C-h is mapped to DEL and DEL
-to C-d; if it's off, the keys are not remapped.
+remapping \\`C-h' (normally produced by the Backspace key) and \\`DEL'
+via `keyboard-translate': if this mode is on, \\`C-h' is mapped to
+\\`DEL' and \\`DEL' to \\`C-d'; if it's off, the keys are not remapped.
 
 When not running on a window system, and this mode is turned on, the
-former functionality of C-h is available on the F1 key.  You should
+former functionality of \\`C-h' is available on the F1 key.  You should
 probably not turn on this mode on a text-only terminal if you don't
 have both Backspace, Delete and F1 keys.
 
@@ -11326,8 +11354,7 @@ seconds."
         (if timer
             ;; The timer is already running.  See if it's due to expire
             ;; within the next five seconds.
-            (let ((time (list (aref timer 1) (aref timer 2)
-                              (aref timer 3))))
+            (let ((time (timer--time timer)))
               (unless (<= (time-convert (time-subtract time nil)
                                         'integer)
                           5)

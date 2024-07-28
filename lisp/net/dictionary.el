@@ -472,7 +472,7 @@ Otherwise, `dictionary-search' displays definitions in a *Dictionary* buffer."
                                    :vert-only t
                                    :help "Go backwards in history.")
     map)
-  "Like the default `tool-bar-map', but with additions for Dictionary mode")
+  "Like the default `tool-bar-map', but with additions for Dictionary mode.")
 
 ;;;###autoload
 (define-derived-mode dictionary-mode special-mode "Dictionary"
@@ -1424,7 +1424,7 @@ via `dictionary-dictionaries'."
       ;; This function runs from the tooltip timer.  We don't want to
       ;; signal errors from the timer due to "Unknown server answers",
       ;; we prefer not to show anything in that case.  FIXME: Perhaps
-      ;; use with-demoted-errors, to show the unknonw answers in the
+      ;; use with-demoted-errors, to show the unknown answers in the
       ;; echo-area?
       (ignore-errors
         (let* ((word (dictionary-word-at-mouse-event

@@ -1617,7 +1617,7 @@ print_bool_vector (Lisp_Object obj, Lisp_Object printcharfun)
   ptrdiff_t real_size_in_bytes = size_in_bytes;
   unsigned char *data = bool_vector_uchar_data (obj);
 
-  char buf[sizeof "#&\"" + INT_STRLEN_BOUND (ptrdiff_t)];
+  char buf[sizeof "#&\"" + INT_STRLEN_BOUND (EMACS_INT)];
   int len = sprintf (buf, "#&%"pI"d\"", size);
   strout (buf, len, len, printcharfun);
 
@@ -2031,6 +2031,11 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
       if (!treesit_node_uptodate_p (obj))
 	{
 	  print_c_string ("-outdated>", printcharfun);
+	  return;
+	}
+      if (!treesit_node_buffer_live_p (obj))
+	{
+	  print_c_string ("-in-killed-buffer>", printcharfun);
 	  return;
 	}
       printchar (' ', printcharfun);

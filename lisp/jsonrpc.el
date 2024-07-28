@@ -125,7 +125,7 @@ size of the log buffer (0 disables, nil means infinite).  The
                            t))
   (when e-b-s-s-supplied-p
     (warn
-     "`:events-buffer-scrollback-size' deprecated. Use `events-buffer-config'.")
+     "`:events-buffer-scrollback-size' deprecated.  Use `events-buffer-config'.")
     (with-slots ((plist -events-buffer-config)) c
       (setf plist (copy-sequence plist)
             plist (plist-put plist :size events-buffer-scrollback-size)))))
@@ -448,7 +448,7 @@ ignored."
               ;; ...finally, whatever may have happened to this sync
               ;; request, it might have been holding up any outer
               ;; "anxious" continuations.  The following ensures we
-              ;; cll them.
+              ;; call them.
               (jsonrpc--continue connection id)))))
     (when (eq 'error (car retval))
       (signal 'jsonrpc-error
@@ -825,7 +825,7 @@ Return the full continuation (ID SUCCESS-FN ERROR-FN TIMER)"
     (cond
      (anxious
       (when (not (= (car head) id)) ; sanity check
-        (error "internal error: please report this bug"))
+        (error "Internal error: please report this bug"))
       ;; If there are "anxious" `jsonrpc-request' continuations
       ;; that should already have been run, they should run now.
       ;; The main continuation -- if it exists -- should run

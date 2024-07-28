@@ -1140,8 +1140,8 @@ fontified."
 For example, Lvl1 | Lvl2[Lvl3[Lvl4[Lvl5 | None]], Lvl2].  This
 structure is represented via nesting binary_operator and
 subscript nodes.  This function iterates over all levels and
-highlight identifier nodes. If TYPE-REGEX is not nil fontify type
-identifier only if it matches against TYPE-REGEX. NODE is the
+highlight identifier nodes.  If TYPE-REGEX is not nil fontify type
+identifier only if it matches against TYPE-REGEX.  NODE is the
 binary_operator node.  OVERRIDE is the override flag described in
 `treesit-font-lock-rules'.  START and END mark the region to be
 fontified."
@@ -1819,7 +1819,7 @@ possibilities can be narrowed to specific indentation points."
         (`(:after-block-end . ,start)
          ;; Subtract one indentation level.
          (goto-char start)
-         (- (current-indentation) python-indent-offset))
+         (max 0 (- (current-indentation) python-indent-offset)))
         (`(:at-dedenter-block-start . ,_)
          ;; List all possible indentation levels from opening blocks.
          (let ((opening-block-start-points
@@ -3104,8 +3104,13 @@ detection and just returns nil."
       (let* ((code (concat
                     "import sys\n"
                     "ps = [getattr(sys, 'ps%s' % i, '') for i in range(1,4)]\n"
+                    "try:\n"
+                    "    import json\n"
+                    "    ps_json = '\\n' + json.dumps(ps)\n"
+                    "except ImportError:\n"
                     ;; JSON is built manually for compatibility
-                    "ps_json = '\\n[\"%s\", \"%s\", \"%s\"]\\n' % tuple(ps)\n"
+                    "    ps_json = '\\n[\"%s\", \"%s\", \"%s\"]\\n' % tuple(ps)\n"
+                    "\n"
                     "print (ps_json)\n"
                     "sys.exit(0)\n"))
              (interpreter python-shell-interpreter)
@@ -3168,7 +3173,7 @@ detection and just returns nil."
             "Or alternatively in:\n"
             "  + `python-shell-prompt-input-regexps'\n"
             "  + `python-shell-prompt-output-regexps'")))
-        prompts))))
+        (mapcar #'ansi-color-filter-apply prompts)))))
 
 (defun python-shell-prompt-validate-regexps ()
   "Validate all user provided regexps for prompts.
@@ -5607,8 +5612,6 @@ See `python-check-command' for the default."
                 doc = '{objtype} {name}{args}'.format(
                     objtype=objtype, name=name, args=args
                 )
-        else:
-            doc = doc.splitlines()[0]
     except:
         doc = ''
     return doc"
@@ -5722,7 +5725,8 @@ Interactively, prompt for symbol."
 (defun python-hideshow-forward-sexp-function (_arg)
   "Python specific `forward-sexp' function for `hs-minor-mode'.
 Argument ARG is ignored."
-  (python-nav-end-of-block))
+  (python-nav-end-of-block)
+  (end-of-line))
 
 (defun python-hideshow-find-next-block (regexp maxp comments)
   "Python specific `hs-find-next-block' function for `hs-minor-mode'.
@@ -7038,6 +7042,7 @@ Add import for undefined name `%s' (empty to skip): "
 
 (defvar electric-indent-inhibit)
 (defvar prettify-symbols-alist)
+(defvar python--installed-grep-hook nil)
 
 ;;;###autoload
 (define-derived-mode python-base-mode prog-mode "Python"
@@ -7121,6 +7126,15 @@ implementations: `python-mode' and `python-ts-mode'."
               (lambda ()
                 "`outline-level' function for Python mode."
                 (1+ (/ (current-indentation) python-indent-offset))))
+
+  (unless python--installed-grep-hook
+    (setq python--installed-grep-hook t)
+    (with-eval-after-load 'grep
+      (defvar grep-files-aliases)
+      (defvar grep-find-ignored-directories)
+      (cl-pushnew '("py" . "*.py") grep-files-aliases :test #'equal)
+      (dolist (dir '(".tox" ".venv" ".mypy_cache" ".ruff_cache"))
+        (cl-pushnew dir grep-find-ignored-directories))))
 
   (setq-local prettify-symbols-alist python-prettify-symbols-alist)
 

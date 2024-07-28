@@ -423,7 +423,7 @@ endif
 
 # Flags that might be in WARN_CFLAGS but are not valid for Objective C.
 NON_OBJC_CFLAGS = -Wignored-attributes -Wignored-qualifiers -Wopenmp-simd \
-  -Wnested-externs -Wstrict-flex-arrays
+  -Wnested-externs -Wstrict-flex-arrays -Wflex-array-member-not-at-end
 # Ditto, but for C++.
 NON_CXX_CFLAGS = -Wmissing-prototypes -Wnested-externs -Wold-style-definition \
   -Wstrict-prototypes -Wno-override-init
@@ -452,7 +452,7 @@ ALL_OBJC_CFLAGS = $(EMACS_CFLAGS) \
 ALL_CXX_CFLAGS = $(EMACS_CFLAGS) \
   $(filter-out $(NON_CXX_CFLAGS),$(WARN_CFLAGS)) $(CXXFLAGS)
 
-.SUFFIXES: .m .cc
+.SUFFIXES: .c .m .cc
 .c.o:
 	$(AM_V_CC)$(CC) -c $(CPPFLAGS) $(ALL_CFLAGS) $(PROFILING_CFLAGS) $<
 .m.o:
@@ -682,7 +682,7 @@ endif
 ifeq ($(DUMPING),pdumper)
 $(pdmp): emacs$(EXEEXT) $(lispsource)/loaddefs.el $(lispsource)/loaddefs.elc
 	LC_ALL=C $(RUN_TEMACS) -batch $(BUILD_DETAILS) -l loadup --temacs=pdump \
-		--bin-dest $(BIN_DESTDIR) --eln-dest $(ELN_DESTDIR)
+		--bin-dest '$(BIN_DESTDIR)' --eln-dest '$(ELN_DESTDIR)'
 	cp -f $@ $(bootstrap_pdmp)
 endif
 
@@ -975,7 +975,7 @@ NATIVE_COMPILATION_AOT = @NATIVE_COMPILATION_AOT@
 	    find $@ -name '*.eln' | rebase -v -O -T -; \
 	  fi; \
 	  LC_ALL=C $(RUN_TEMACS) -batch $(BUILD_DETAILS) -l loadup --temacs=pdump \
-		--bin-dest $(BIN_DESTDIR) --eln-dest $(ELN_DESTDIR) \
+		--bin-dest '$(BIN_DESTDIR)' --eln-dest '$(ELN_DESTDIR)' \
 	  && cp -f emacs$(EXEEXT) bootstrap-emacs$(EXEEXT) \
 	  && cp -f $(pdmp) $(bootstrap_pdmp); \
 	  if test $(NATIVE_COMPILATION_AOT) = yes; then \
@@ -1014,7 +1014,7 @@ ifeq ($(DUMPING),pdumper)
 $(bootstrap_pdmp): bootstrap-emacs$(EXEEXT)
 	rm -f $@
 	$(RUN_TEMACS) --batch $(BUILD_DETAILS) -l loadup --temacs=pbootstrap \
-		--bin-dest $(BIN_DESTDIR) --eln-dest $(ELN_DESTDIR)
+		--bin-dest '$(BIN_DESTDIR)' --eln-dest '$(ELN_DESTDIR)'
 	@: Compile some files earlier to speed up further compilation.
 	@: First, byte compile these files, ....
 	ANCIENT=yes $(MAKE) -C ../lisp compile-first EMACS="$(bootstrap_exe)"

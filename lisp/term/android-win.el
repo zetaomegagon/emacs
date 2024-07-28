@@ -223,7 +223,7 @@ VALUE should be something suitable for passing to
 ;; time.  This pre-command-hook clears the overlay before any command
 ;; and should be set whenever a preedit overlay is visible.
 (defun android-clear-preedit-text ()
-  "Clear the pre-edit overlay and remove itself from pre-command-hook.
+  "Clear the pre-edit overlay and remove itself from `pre-command-hook'.
 This function should be installed in `pre-command-hook' whenever
 preedit text is displayed."
   (when android-preedit-overlay
@@ -305,7 +305,7 @@ names which represent them."
                  (new-uri-list nil)
                  (dnd-unescape-file-uris t))
              (dolist (uri uri-list)
-               ;; If the URI is a preprepared file name, insert it directly.
+               ;; If the URI is a prepared file name, insert it directly.
                (if (string-match-p "^/content/by-authority\\(-named\\)?/" uri)
                    (setq uri (concat "file:" uri)
                          dnd-unescape-file-uris nil)
@@ -618,5 +618,15 @@ accessible to other programs."
   :ccl-encoder 'android-encode-jni)
 
 
+;; Default key definitions.
+
+;; Suppress KEYCODE_NOTIFICATION, which has been observed to be
+;; spontaneously generated on certain tablets, so that the user may not
+;; be disturbed by intrusive messages when it is registered.
+(global-set-key [KEYCODE_NOTIFICATION] #'ignore)
+(global-set-key [\83] #'ignore) ; KEYCODE_NOTIFICATION on pre-Honeycomb
+                                ; releases.
+
+
 (provide 'android-win)
-;; android-win.el ends here.
+;;; android-win.el ends here

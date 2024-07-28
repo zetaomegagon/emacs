@@ -12,8 +12,8 @@
 ;;               David Edmondson (dme@dme.org)
 ;;               Michael Olson (mwolson@gnu.org)
 ;;               Kelvin White (kwhite@gnu.org)
-;; Version: 5.6-git
-;; Package-Requires: ((emacs "27.1") (compat "29.1.4.4"))
+;; Version: 5.6.1-git
+;; Package-Requires: ((emacs "27.1") (compat "29.1.4.5"))
 ;; Keywords: IRC, chat, client, Internet
 ;; URL: https://www.gnu.org/software/emacs/erc.html
 
@@ -70,7 +70,7 @@
 (require 'auth-source)
 (eval-when-compile (require 'subr-x))
 
-(defconst erc-version "5.6-git"
+(defconst erc-version "5.6.1-git"
   "This version of ERC.")
 
 (defvar erc-official-location
@@ -676,10 +676,11 @@ Also remove members from the server table if this was their only buffer."
     (erc-remove-channel-users)))
 
 (defmacro erc--define-channel-user-status-compat-getter (name c d)
-  "Define a gv getter for historical `erc-channel-user' status slot NAME.
-Expect NAME to be a string, C to be its traditionally associated
-letter, and D to be its fallback power-of-2 integer for non-ERC
-buffers."
+  "Define accessor with gv getter for historical `erc-channel-user' slot NAME.
+Expect NAME to be a string, C to be its traditionally associated letter,
+and D to be its fallback power-of-2 integer for non-ERC buffers.  Unlike
+pre-ERC-5.6 accessors, do not bother generating a compiler macro for
+inlining calls to these adapters."
   `(defun ,(intern (concat "erc-channel-user-" name)) (u)
      ,(format "Get equivalent of pre-5.6 `%s' slot for `erc-channel-user'."
               name)
@@ -1867,7 +1868,7 @@ the value of this option is DISPLAY-FUNCTION."
   "How to display buffers as a result of user interaction.
 This affects commands like /QUERY and /JOIN when issued
 interactively at the prompt.  It does not apply when calling a
-handler for such a command, like `erc-cmd-JOIN', from lisp code.
+handler for such a command, like `erc-cmd-JOIN', from Lisp code.
 See `erc-buffer-display' for a full description of available
 values.
 
@@ -2268,7 +2269,7 @@ buffer rather than a server buffer.")
                           list match menu move-to-prompt netsplit
                           networks readonly ring stamp track)
   "Modules to enable while connecting.
-When modifying this option in lisp code, use a Custom-friendly
+When modifying this option in Lisp code, use a Custom-friendly
 facilitator, like `setopt', or call `erc-update-modules'
 afterward.  This ensures a consistent ordering and disables
 removed modules.  It also gives packages access to the hook
@@ -2951,15 +2952,16 @@ PARAMETERS should be a sequence of keywords and values, per
 
 (defun erc-open-socks-tls-stream (name buffer host service &rest parameters)
   "Connect to an IRC server via SOCKS proxy over TLS.
-Defer to the `socks' and `gnutls' libraries to make the actual
-connection and perform TLS negotiation.  Expect SERVICE to be a
-TLS port number and that the plist PARAMETERS contains a
-`:client-certificate' pair when necessary.  Otherwise, assume the
-arguments NAME, BUFFER, and HOST to be acceptable to
-`open-network-stream' and that users know to check out
-`erc-server-connect-function' and Info node `(erc) SOCKS' for
-more info, including an important example of how to \"wrap\" this
-function with SOCKS credentials."
+Perform the duties required of an `erc-server-connect-function'
+implementer, and return a network process.  Defer to the `socks'
+and `gnutls' libraries to make the connection and handle TLS
+negotiation.  Expect SERVICE to be a TLS port number and
+PARAMETERS to be a possibly empty plist containing items like a
+`:client-certificate' pair.  Pass NAME, BUFFER, and HOST directly
+to `open-network-stream'.  Beyond that, operate as described in
+Info node `(erc) SOCKS', and expect users to \"wrap\" this
+function with `let'-bound credentials when necessary, as shown in
+the example."
   (require 'gnutls)
   (require 'socks)
   (let ((proc (socks-open-network-stream name buffer host service))
@@ -4474,7 +4476,7 @@ Called with position indicating boundary of interval to be excised.")
 (defun erc-cmd-CLEAR ()
   "Clear messages in current buffer after informing active modules.
 Expect modules to perform housekeeping tasks to withstand the
-disruption.  When called from lisp code, only clear messages up
+disruption.  When called from Lisp code, only clear messages up
 to but not including the one occupying the current line."
   (with-silent-modifications
     (let ((max (if (>= (point) erc-insert-marker)
@@ -6031,8 +6033,7 @@ manner implied above, which was lost sometime before ERC 5.4."
   :group 'erc-buffers
   :group 'erc-query
   :type '(choice boolean
-                 (choice :tag "Create pseudo queries for STATUSMSGs"
-                         status)))
+                 (const :tag "Create pseudo queries for STATUSMSGs" status)))
 
 (defcustom erc-format-query-as-channel-p t
   "If non-nil, format text from others in a query buffer like in a channel.
@@ -6186,7 +6187,15 @@ NUH, and the current `erc-response' object.")
   (and erc-channel-users (gethash downcased erc-channel-users)))
 
 (defun erc-format-privmessage (nick msg privp msgp)
-  "Format a PRIVMSG in an insertable fashion."
+  "Format a PRIVMSG in an insertable fashion.
+
+Note that as of version 5.6, the default client no longer calls this
+function.  It instead defers to the `format-spec'-based message-catalog
+system to handle all message formatting.  Anyone needing to influence
+such formatting should describe their use case via \\[erc-bug] or
+similar.  Please do this instead of resorting to things like modifying
+formatting templates to remove speaker brackets (because many modules
+rely on their presence, and cleaner ways exist)."
   (let* ((mark-s (if msgp (if privp "*" "<") "-"))
          (mark-e (if msgp (if privp "*" ">") "-"))
          (str    (format "%s%s%s %s" mark-s nick mark-e msg))
@@ -7278,7 +7287,7 @@ status switches among VOICE, HALFOP, OP, ADMIN, and OWNER to be
 the symbol `on' or `off' when needing to influence a new or
 existing `erc-channel-user' object's `status' slot.  Likewise,
 when UPDATE-MESSAGE-TIME is non-nil, update or initialize the
-`last-message-time' slot to the current-time.  If changes occur,
+`last-message-time' slot to the `current-time'.  If changes occur,
 including creation, run `erc-channel-members-changed-hook'.
 Return non-nil when meaningful changes, including creation, have
 occurred.
@@ -9163,7 +9172,7 @@ Currently only used by the option `erc-prompt-format'.")
 ;; As of ERC 5.6, this is identical to the away variant aside from
 ;; the var names and `eq', which isn't important.
 (defun erc--format-user-modes ()
-  "Return server's user modes as a string"
+  "Return server's user modes as a string."
   (and-let* ((indicator (erc-with-server-buffer
                           (or erc--user-modes-indicator
                               (setq erc--user-modes-indicator (list "")))))
@@ -9680,7 +9689,7 @@ See also `format-spec'."
     erc-networks-shrink-ids-and-buffer-names
     erc-networks-rename-surviving-target-buffer)
   "Invoked whenever a channel-buffer is killed via `kill-buffer'."
-  :package-version '(ERC . "5.6") ; FIXME sync on release
+  :package-version '(ERC . "5.6")
   :group 'erc-hooks
   :type 'hook)
 
@@ -9720,7 +9729,7 @@ or `erc-kill-buffer-hook' if any other buffer."
 (defun erc-check-text-conversion ()
   "Check if point is within the ERC prompt and toggle text conversion.
 If `text-conversion-style' is not `action' if point is within the
-prompt or `nil' otherwise, set it to such a value, so as to
+prompt or nil otherwise, set it to such a value, so as to
 guarantee that the input method functions properly for the
 purpose of typing within the ERC prompt."
   (when (and (eq major-mode 'erc-mode)

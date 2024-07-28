@@ -153,6 +153,15 @@ select_window (Lisp_Object window, Lisp_Object norecord)
   Fselect_window (window, norecord);
 }
 
+/* Restore the selected window WINDOW.  */
+
+static void
+restore_selected_window (Lisp_Object window)
+{
+  /* FIXME: not sure what to do if WINDOW has been deleted.  */
+  select_window (window, Qt);
+}
+
 /* Perform the text conversion operation specified in QUERY and return
    the results.
 
@@ -188,6 +197,7 @@ textconv_query (struct frame *f, struct textconv_callback_struct *query,
      selected window.  */
   count = SPECPDL_INDEX ();
   record_unwind_protect_excursion ();
+  record_unwind_protect (restore_selected_window, selected_window);
 
   /* Inhibit quitting.  */
   specbind (Qinhibit_quit, Qt);
@@ -584,15 +594,6 @@ detect_conversion_events (void)
     }
 
   return false;
-}
-
-/* Restore the selected window WINDOW.  */
-
-static void
-restore_selected_window (Lisp_Object window)
-{
-  /* FIXME: not sure what to do if WINDOW has been deleted.  */
-  select_window (window, Qt);
 }
 
 /* Commit the given text in the composing region.  If there is no
@@ -1138,6 +1139,10 @@ locate_and_save_position_in_field (struct frame *f, struct window *w,
 
   /* Set the current buffer to W's.  */
   count = SPECPDL_INDEX ();
+
+  /* The current buffer must be saved, not merely the selected
+     window.  */
+  record_unwind_protect_excursion ();
   record_unwind_protect (restore_selected_window, selected_window);
   XSETWINDOW (window, w);
   select_window (window, Qt);
@@ -1736,7 +1741,7 @@ handle_pending_conversion_events (void)
 
 /* Return the confines of the field to which editing operations on frame
    F should be constrained in *BEG and *END.  Should no field be active,
-   set *END to MOST_POSITIVE_FIXNUM.  */
+   set *END to PTRDIFF_MAX.  */
 
 void
 get_conversion_field (struct frame *f, ptrdiff_t *beg, ptrdiff_t *end)
@@ -1764,7 +1769,7 @@ get_conversion_field (struct frame *f, ptrdiff_t *beg, ptrdiff_t *end)
     }
 
   *beg = 1;
-  *end = MOST_POSITIVE_FIXNUM;
+  *end = PTRDIFF_MAX;
 }
 
 /* Start a ``batch edit'' in frame F.  During a batch edit,
@@ -2097,6 +2102,7 @@ get_extracted_text (struct frame *f, ptrdiff_t n,
      selected window.  */
   count = SPECPDL_INDEX ();
   record_unwind_protect_excursion ();
+  record_unwind_protect (restore_selected_window, selected_window);
 
   /* Inhibit quitting.  */
   specbind (Qinhibit_quit, Qt);
@@ -2219,6 +2225,7 @@ get_surrounding_text (struct frame *f, ptrdiff_t left,
      selected window.  */
   count = SPECPDL_INDEX ();
   record_unwind_protect_excursion ();
+  record_unwind_protect (restore_selected_window, selected_window);
 
   /* Inhibit quitting.  */
   specbind (Qinhibit_quit, Qt);

@@ -44,6 +44,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "systime.h"
 #include "thread.h"
 #include "bignum.h"
+#include "treesit.h"
 
 #ifdef CHECK_STRUCTS
 # include "dmpstruct.h"
@@ -2125,8 +2126,7 @@ dump_marker (struct dump_context *ctx, const struct Lisp_Marker *marker)
 }
 
 static dump_off
-dump_interval_node (struct dump_context *ctx, struct itree_node *node,
-                    dump_off parent_offset)
+dump_interval_node (struct dump_context *ctx, struct itree_node *node)
 {
 #if CHECK_STRUCTS && !defined (HASH_itree_node_50DE304F13)
 # error "itree_node changed. See CHECK_STRUCTS comment in config.h."
@@ -2153,17 +2153,17 @@ dump_interval_node (struct dump_context *ctx, struct itree_node *node,
       dump_remember_fixup_ptr_raw
 	(ctx,
 	 offset + dump_offsetof (struct itree_node, parent),
-	 dump_interval_node (ctx, node->parent, offset));
+	 dump_interval_node (ctx, node->parent));
   if (node->left)
       dump_remember_fixup_ptr_raw
 	(ctx,
 	 offset + dump_offsetof (struct itree_node, left),
-	 dump_interval_node (ctx, node->left, offset));
+	 dump_interval_node (ctx, node->left));
   if (node->right)
       dump_remember_fixup_ptr_raw
 	(ctx,
 	 offset + dump_offsetof (struct itree_node, right),
-	 dump_interval_node (ctx, node->right, offset));
+	 dump_interval_node (ctx, node->right));
   return offset;
 }
 
@@ -2180,7 +2180,7 @@ dump_overlay (struct dump_context *ctx, const struct Lisp_Overlay *overlay)
   dump_remember_fixup_ptr_raw
     (ctx,
      offset + dump_offsetof (struct Lisp_Overlay, interval),
-     dump_interval_node (ctx, overlay->interval, offset));
+     dump_interval_node (ctx, overlay->interval));
   return offset;
 }
 
@@ -2209,11 +2209,26 @@ dump_finalizer (struct dump_context *ctx,
   /* Do _not_ call dump_pseudovector_lisp_fields here: we dump the
      only Lisp field, finalizer->function, manually, so we can give it
      a low weight.  */
-  dump_field_lv (ctx, &out, finalizer, &finalizer->function, WEIGHT_NONE);
-  dump_field_finalizer_ref (ctx, &out, finalizer, &finalizer->prev);
-  dump_field_finalizer_ref (ctx, &out, finalizer, &finalizer->next);
+  dump_field_lv (ctx, out, finalizer, &finalizer->function, WEIGHT_NONE);
+  dump_field_finalizer_ref (ctx, out, finalizer, &finalizer->prev);
+  dump_field_finalizer_ref (ctx, out, finalizer, &finalizer->next);
   return finish_dump_pvec (ctx, &out->header);
 }
+
+#ifdef HAVE_TREE_SITTER
+static dump_off
+dump_treesit_compiled_query (struct dump_context *ctx,
+			     struct Lisp_TS_Query *query)
+{
+  START_DUMP_PVEC (ctx, &query->header, struct Lisp_TS_Query, out);
+  dump_field_lv (ctx, &out->language, query, &query->language, WEIGHT_STRONG);
+  dump_field_lv (ctx, &out->source, query, &query->source, WEIGHT_STRONG);
+  /* These will be recompiled after load from dump.  */
+  out->query = NULL;
+  out->cursor = NULL;
+  return finish_dump_pvec (ctx, &out->header);
+}
+#endif
 
 struct bignum_reload_info
 {
@@ -3108,6 +3123,10 @@ dump_vectorlike (struct dump_context *ctx,
           return DUMP_OBJECT_IS_RUNTIME_MAGIC;
         }
       break;
+    case PVEC_TS_COMPILED_QUERY:
+#ifdef HAVE_TREE_SITTER
+      return dump_treesit_compiled_query (ctx, XTS_COMPILED_QUERY (lv));
+#endif
     case PVEC_WINDOW_CONFIGURATION:
     case PVEC_OTHER:
     case PVEC_XWIDGET:
@@ -3122,7 +3141,6 @@ dump_vectorlike (struct dump_context *ctx,
     case PVEC_FREE:
     case PVEC_TS_PARSER:
     case PVEC_TS_NODE:
-    case PVEC_TS_COMPILED_QUERY:
       break;
     }
   char msg[60];

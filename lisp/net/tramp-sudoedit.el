@@ -305,7 +305,7 @@ absolute file names."
 	  ;; Set the time and mode. Mask possible errors.
 	  (when keep-date
 	    (ignore-errors
-	      (tramp-compat-set-file-times
+	      (set-file-times
 	       newname file-times (unless ok-if-already-exists 'nofollow))
 	      (set-file-modes newname file-modes)))
 
@@ -371,7 +371,7 @@ the result will be a local, non-Tramp, file name."
     (setq name "."))
   ;; Unless NAME is absolute, concat DIR and NAME.
   (unless (file-name-absolute-p name)
-    (setq name (tramp-compat-file-name-concat dir name)))
+    (setq name (file-name-concat dir name)))
   ;; If NAME is not a Tramp file, run the real handler.
   (if (not (tramp-tramp-file-p name))
       (tramp-run-real-handler #'expand-file-name (list name))
@@ -475,7 +475,7 @@ the result will be a local, non-Tramp, file name."
     (with-tramp-file-property v localname "file-executable-p"
       ;; Examine `file-attributes' cache to see if request can be
       ;; satisfied without remote operation.
-      (if (tramp-file-property-p v localname "file-attributes")
+      (if (tramp-use-file-attributes v)
 	  (or (tramp-check-cached-permissions v ?x)
 	      (tramp-check-cached-permissions v ?s))
 	(tramp-sudoedit-send-command
@@ -515,7 +515,7 @@ the result will be a local, non-Tramp, file name."
     (with-tramp-file-property v localname "file-readable-p"
       ;; Examine `file-attributes' cache to see if request can be
       ;; satisfied without remote operation.
-      (if (tramp-file-property-p v localname "file-attributes")
+      (if (tramp-use-file-attributes v)
 	  (tramp-handle-file-readable-p filename)
 	(tramp-sudoedit-send-command
 	 v "test" "-r" (file-name-unquote localname))))))
@@ -600,7 +600,7 @@ the result will be a local, non-Tramp, file name."
       (if (file-exists-p filename)
 	  ;; Examine `file-attributes' cache to see if request can be
 	  ;; satisfied without remote operation.
-	  (if (tramp-file-property-p v localname "file-attributes")
+	  (if (tramp-use-file-attributes v)
 	      (tramp-check-cached-permissions v ?w)
 	    (tramp-sudoedit-send-command
 	     v "test" "-w" (file-name-unquote localname)))

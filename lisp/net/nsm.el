@@ -100,21 +100,20 @@ This means that no queries should be performed.")
 (defun nsm-verify-connection (process host port &optional
 				      save-fingerprint warn-unencrypted)
   "Verify the security status of PROCESS that's connected to HOST:PORT.
-If PROCESS is a gnutls connection, the certificate validity will
-be examined.  If it's a non-TLS connection, it may be compared
-against previous connections.  If the function determines that
-there is something odd about the connection, the user will be
-queried about what to do about it.
+If PROCESS is a GnuTLS connection, the certificate validity will be
+examined.  If it's a non-TLS connection, it may be compared against
+previous connections.  If the function determines that there is
+something odd about the connection, the user will be queried about what
+to do about it.
 
-The process is returned if everything is OK, and otherwise, the
-process will be deleted and nil is returned.
+Return the process if all the checks pass.  Otherwise, delete the
+process and return nil.
 
-If SAVE-FINGERPRINT, always save the fingerprint of the
-server (if the connection is a TLS connection).  This is useful
-to keep track of the TLS status of STARTTLS servers.
+If SAVE-FINGERPRINT, always save the fingerprint of the server (if the
+connection is a TLS connection).  This is useful to keep track of the
+TLS status of STARTTLS servers.
 
-If WARN-UNENCRYPTED, query the user if the connection is
-unencrypted."
+If WARN-UNENCRYPTED, query the user if the connection is unencrypted."
   (let* ((status (gnutls-peer-status process))
          (id (nsm-id host port))
          (settings (nsm-host-settings id)))
@@ -826,7 +825,10 @@ protocol."
            (?n "next" "Next certificate")
            (?p "previous" "Previous certificate")
            (?q "quit" "Quit details view")))
-        (done nil))
+        (done nil)
+	(old-use-dialog-box use-dialog-box)
+	(use-dialog-box use-dialog-box)
+	(use-dialog-box-override use-dialog-box-override))
     (save-window-excursion
       ;; First format the certificate and warnings.
       (pop-to-buffer buffer)
@@ -859,14 +861,18 @@ protocol."
                              (read-multiple-choice "Continue connecting?"
                                                    accept-choices)))
               (setq buf (if show-details cert-buffer buffer))
-
               (cl-case (car answer)
                 (?q
+		 (setq use-dialog-box old-use-dialog-box)
                  ;; Exit the details window.
                  (set-window-buffer (get-buffer-window cert-buffer) buffer)
                  (setq show-details nil))
 
                 (?d
+		 ;; Dialog boxes should be suppressed, as they
+		 ;; obstruct the certificate details buffer.
+		 (setq use-dialog-box nil
+		       use-dialog-box-override nil)
                  ;; Enter the details window.
                  (set-window-buffer (get-buffer-window buffer) cert-buffer)
                  (with-current-buffer cert-buffer

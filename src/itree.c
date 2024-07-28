@@ -64,7 +64,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
    ==== FIXME: bug#58342 some important operations remain slow ===
 
-   The amortized costs of Emacs' previous-overlay-change and
+   The amortized costs of Emacs's previous-overlay-change and
    next-overlay-change functions are O(N) with this data structure.
    The root problem is that we only have an order for the BEG field,
    but not the END.  The previous/next overlay change operations need
@@ -1211,7 +1211,7 @@ itree_node_intersects (const struct itree_node *node,
    `ITER->begin..ITER->end`) so it will also return some nodes which aren't in
    that narrowing simply because they may have children which are.
 
-   The code itself is very unsatifactory because the code of each one
+   The code itself is very unsatisfactory because the code of each one
    of the supported traversals seems completely different from the others.
    If someone knows how to make it more uniform and "obviously correct",
    please make yourself heard.  */

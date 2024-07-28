@@ -1306,7 +1306,7 @@ This consults the entries in `eww-readable-urls' (which see)."
   "Check if point is within a field and toggle text conversion.
 Set `text-conversion-style' to the value `action' if it isn't
 already and point is within the prompt field, or if
-`text-conversion-style' is `nil', so as to guarantee that
+`text-conversion-style' is nil, so as to guarantee that
 the input method functions properly for the purpose of typing
 within text input fields."
   (when (and (eq major-mode 'eww-mode)
@@ -1370,13 +1370,22 @@ within text input fields."
     (save-excursion
       (goto-char (point-min))
       (while-let ((match (text-property-search-forward
-                          'display nil (lambda (_ value) (imagep value)))))
-        (let ((image (prop-match-value match)))
-          (unless (image-property image :original-scale)
-            (setf (image-property image :original-scale)
-                  (or (image-property image :scale) 1)))
+                          'display nil
+                          (lambda (_ value)
+                            (and value (get-display-property
+                                        nil 'image nil value))))))
+        (let* ((image (cons 'image
+                            (get-display-property nil 'image nil
+                                                  (prop-match-value match))))
+               (original-scale (or (image-property image :original-scale)
+                                   (setf (image-property image :original-scale)
+                                         (or (image-property image :scale)
+                                             'default)))))
+          (when (eq original-scale 'default)
+            (setq original-scale (image-compute-scaling-factor
+                                  image-scaling-factor)))
           (setf (image-property image :scale)
-                (* (image-property image :original-scale) scaling)))))))
+                (* original-scale scaling)))))))
 
 (defun eww--url-at-point ()
   "`thing-at-point' provider function."
@@ -2463,7 +2472,7 @@ If ERROR-OUT, signal user-error if there are no bookmarks."
 
 (defun eww-save-history ()
   "Save the current page's data to the history.
-If the current page is a historial one loaded from
+If the current page is a historical one loaded from
 `eww-history' (e.g. by calling `eww-back-url'), this will update the
 page's entry in `eww-history' and return nil.  Otherwise, add a new
 entry to `eww-history' and return t."
@@ -2754,11 +2763,20 @@ Only the properties listed in `eww-desktop-data-save' are included.
 Generally, the list should not include the (usually overly large)
 :dom, :source and :text properties."
   (let ((history (mapcar #'eww-desktop-data-1
-                         (cons eww-data eww-history))))
-    (list :history (if eww-desktop-remove-duplicates
-                       (cl-remove-duplicates
-                        history :test #'eww-desktop-history-duplicate)
-                     history))))
+                         (cons eww-data eww-history)))
+        (posn eww-history-position) rval)
+    (list :history
+          (if eww-desktop-remove-duplicates
+              (prog1
+                  (setq
+                   rval (cl-remove-duplicates
+                         history :test #'eww-desktop-history-duplicate))
+                (setq posn
+                      (cl-position
+                       (elt history eww-history-position)
+                       rval :test #'eq)))
+            history)
+          :history-position posn)))
 
 (defun eww-restore-desktop (file-name buffer-name misc-data)
   "Restore an eww buffer from its desktop file record.
@@ -2772,7 +2790,8 @@ Otherwise, the restored buffer will contain a prompt to do so by using
     (setq eww-history       (cdr (plist-get misc-data :history))
 	  eww-data      (or (car (plist-get misc-data :history))
 			    ;; backwards compatibility
-			    (list :url (plist-get misc-data :uri))))
+			    (list :url (plist-get misc-data :uri)))
+          eww-history-position (plist-get misc-data :history-position))
     (unless file-name
       (when (plist-get eww-data :url)
 	(cl-case eww-restore-desktop
@@ -2784,8 +2803,6 @@ Otherwise, the restored buffer will contain a prompt to do so by using
     ;; .
     (current-buffer)))
 
-(add-to-list 'desktop-locals-to-save
-	     'eww-history-position)
 (add-to-list 'desktop-buffer-mode-handlers
              '(eww-mode . eww-restore-desktop))
 

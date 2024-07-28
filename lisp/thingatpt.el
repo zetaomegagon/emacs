@@ -778,7 +778,10 @@ Signal an error if the entire string was not used."
 
 ;;;###autoload
 (defun sexp-at-point ()
-  "Return the sexp at point, or nil if none is found."
+  "Return the sexp at point, or nil if none is found.
+This is for returning the Lisp object represented by text at point;
+use (thing-at-point \\='sexp) instead if you rather want the balanced
+expression at point regardless of Lisp syntax."
   (form-at-point 'sexp))
 ;;;###autoload
 (defun symbol-at-point ()
@@ -792,7 +795,7 @@ Signal an error if the entire string was not used."
 
 (defvar thing-at-point-hexadecimal-regexp
   "\\(0x\\|#x\\)\\([a-fA-F0-9]+\\)"
-  "A regexp matchin a hexadecimal number.")
+  "A regexp matching a hexadecimal number.")
 
 ;;;###autoload
 (defun number-at-point ()

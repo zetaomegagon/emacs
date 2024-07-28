@@ -658,8 +658,8 @@ executed once, when the buffer is created."
         ["Forward Output Group" term-next-prompt t]
         ["Kill Current Output Group" term-kill-output t]))
     map)
-  "Keymap for \"line mode\" in Term mode.  For custom keybindings purposes
-please note there is also `term-raw-map'")
+  "Keymap for \"line mode\" in Term mode.
+For custom keybindings purposes please note there is also `term-raw-map'")
 
 (defvar term-escape-char nil
   "Escape character for char sub-mode of term mode.
@@ -1097,7 +1097,7 @@ The interpreter name is same as buffer name, sans the asterisks.
 There are two submodes: line mode and char mode.  By default, you are
 in char mode.  In char sub-mode, each character (except
 `term-escape-char') is sent immediately to the subprocess.
-The escape character is equivalent to the usual meaning of C-x.
+The escape character is equivalent to the usual meaning of \\`C-x'.
 
 In line mode, you send a line of input at a time; use
 \\[term-send-input] to send.
@@ -1459,7 +1459,7 @@ Entry to this mode runs the hooks on `term-mode-hook'."
 (defun term-char-mode ()
   "Switch to char (\"raw\") sub-mode of term mode.
 Each character you type is sent directly to the inferior without
-intervention from Emacs, except for the escape character (usually C-c)."
+intervention from Emacs, except for the escape character (usually \\`C-c')."
   (interactive)
   ;; FIXME: Emit message? Cfr ilisp-raw-message
   (when (term-in-line-mode)
@@ -1712,6 +1712,30 @@ Nil if unknown.")
                   "case $BASH_VERSION in [0123].*|4.[0123].*) exit 43;; esac")
                (error 0)))))))
 
+(defun term-generate-db-directory ()
+  "Return the name of a directory holding Emacs's terminfo files.
+If `data-directory' is accessible to subprocesses, as on systems besides
+Android, return the same and no more.  Otherwise, copy terminfo files
+from the same directory to a temporary location, and return the latter."
+  (if (not (featurep 'android))
+      data-directory
+    (progn
+      (let* ((dst-directory (expand-file-name "eterm-db/e"
+                                              temporary-file-directory))
+             (parent (directory-file-name
+                      (file-name-directory dst-directory)))
+             (src-directory (expand-file-name "e" data-directory)))
+        (when (file-newer-than-file-p src-directory dst-directory)
+          (message "Generating Terminfo database...")
+          (with-demoted-errors "Generating Terminfo database: %s"
+            (when (file-exists-p dst-directory)
+              ;; Arrange that the directory be writable.
+              (dolist (x (directory-files-recursively parent "" t t))
+                (set-file-modes x #o700))
+              (delete-directory dst-directory t))
+            (copy-directory src-directory dst-directory nil t t)))
+        parent))))
+
 ;; This auxiliary function cranks up the process for term-exec in
 ;; the appropriate environment.
 
@@ -1725,7 +1749,8 @@ Nil if unknown.")
 	 (nconc
 	  (list
 	   (format "TERM=%s" term-term-name)
-	   (format "TERMINFO=%s" data-directory)
+	   (format "TERMINFO=%s"
+                   (term-generate-db-directory))
 	   (format term-termcap-format "TERMCAP="
 		   term-term-name term-height term-width)
 
