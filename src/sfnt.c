@@ -1093,10 +1093,10 @@ sfnt_lookup_glyph_2 (sfnt_char character,
   unsigned char *slice;
   uint16_t glyph;
 
-  if (character > 65335)
+  if (character > 65535)
     return 0;
 
-  i = character >> 16;
+  i = character >> 8;
   j = character & 0xff;
   k = format2->sub_header_keys[i] / 8;
 
@@ -1129,9 +1129,9 @@ sfnt_lookup_glyph_2 (sfnt_char character,
 	return 0;
     }
 
-  /* k is 0, so glyph_index_array[i] is the glyph.  */
-  return (i < format2->num_glyphs
-	  ? format2->glyph_index_array[i]
+  /* k is 0, so glyph_index_array[j] is the glyph.  */
+  return (j < format2->num_glyphs
+	  ? format2->glyph_index_array[j]
 	  : 0);
 }
 
@@ -2578,8 +2578,10 @@ sfnt_transform_coordinates (struct sfnt_compound_glyph_component *component,
 
   for (i = 0; i < num_coordinates; ++i)
     {
-      x[i] = m1 * x[i] + m2 * y[i] + m3 * 1;
-      y[i] = m4 * x[i] + m5 * y[i] + m6 * 1;
+      sfnt_fixed xi = m1 * x[i] + m2 * y[i] + m3 * 1;
+      sfnt_fixed yi = m4 * x[i] + m5 * y[i] + m6 * 1;
+      x[i] = xi;
+      y[i] = yi;
     }
 }
 
@@ -12822,8 +12824,10 @@ sfnt_transform_f26dot6 (struct sfnt_compound_glyph_component *component,
 
   for (i = 0; i < num_coordinates; ++i)
     {
-      x[i] = m1 * x[i] + m2 * y[i] + m3 * 1;
-      y[i] = m4 * x[i] + m5 * y[i] + m6 * 1;
+      sfnt_f26dot6 xi = m1 * x[i] + m2 * y[i] + m3 * 1;
+      sfnt_f26dot6 yi = m4 * x[i] + m5 * y[i] + m6 * 1;
+      x[i] = xi;
+      y[i] = yi;
     }
 }
 
@@ -16606,10 +16610,10 @@ sfnt_read_OS_2_table (int fd, struct sfnt_offset_subtable *subtable)
 
   OS_2 = xmalloc (sizeof *OS_2);
 
-  /* Read data into the structure.  */
+  /* Read data up to the end of `panose'.  */
 
-  wanted = SFNT_ENDOF (struct sfnt_OS_2_table, fs_last_char_index,
-		       uint16_t);
+  wanted = SFNT_ENDOF (struct sfnt_OS_2_table, panose,
+		       unsigned char[10]);
   rc = read (fd, OS_2, wanted);
 
   if (rc == -1 || rc != wanted)
@@ -16636,6 +16640,20 @@ sfnt_read_OS_2_table (int fd, struct sfnt_offset_subtable *subtable)
   sfnt_swap16 (&OS_2->y_strikeout_size);
   sfnt_swap16 (&OS_2->y_strikeout_position);
   sfnt_swap16 (&OS_2->s_family_class);
+
+  /* Read fields between ul_unicode_range and fs_last_char_index.  */
+  wanted = (SFNT_ENDOF (struct sfnt_OS_2_table, fs_last_char_index,
+			uint16_t)
+	    - offsetof (struct sfnt_OS_2_table, ul_unicode_range));
+  rc = read (fd, &OS_2->ul_unicode_range, wanted);
+
+  if (rc == -1 || rc != wanted)
+    {
+      xfree (OS_2);
+      return NULL;
+    }
+
+  /* Swap the remainder and return the table.  */
   sfnt_swap32 (&OS_2->ul_unicode_range[0]);
   sfnt_swap32 (&OS_2->ul_unicode_range[1]);
   sfnt_swap32 (&OS_2->ul_unicode_range[2]);
