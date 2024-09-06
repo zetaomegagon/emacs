@@ -7085,11 +7085,15 @@ point otherwise."
   :group 'editing-basics)
 
 (defun use-region-beginning ()
-  "Return the start of the region if `use-region-p'."
+  "Return the start of the region if `use-region-p' returns non-nil.
+This is a convenience function to use in `interactive' forms of
+commands that need to act on the region when it is active."
   (and (use-region-p) (region-beginning)))
 
 (defun use-region-end ()
-  "Return the end of the region if `use-region-p'."
+  "Return the end of the region if `use-region-p' returns non-nil.
+This is a convenience function to use in `interactive' forms of
+commands that need to act on the region when it is active."
   (and (use-region-p) (region-end)))
 
 (defun use-region-noncontiguous-p ()
@@ -8200,7 +8204,8 @@ If NOERROR, don't signal an error if we can't move that many lines."
 
 	;; Move to the desired column.
         (if (and line-move-visual
-                 (not (or truncate-lines truncate-partial-width-windows)))
+                 (not noninteractive)
+                 (not (or truncate-lines (truncated-partial-width-window-p))))
             ;; Under line-move-visual, goal-column should be
             ;; interpreted in units of the frame's canonical character
             ;; width, which is exactly what vertical-motion does.
