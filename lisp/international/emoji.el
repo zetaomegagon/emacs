@@ -164,12 +164,12 @@ when the command was invoked."
   (let ((buf (current-buffer)))
     (emoji--init)
     (switch-to-buffer (get-buffer-create "*Emoji*"))
+    (setq-local emoji--insert-buffer buf)
     ;; Don't regenerate the buffer if it already exists -- this will
     ;; leave point where it was the last time it was used.
     (when (zerop (buffer-size))
       (let ((inhibit-read-only t))
         (emoji-list-mode)
-        (setq-local emoji--insert-buffer buf)
         (emoji--list-generate nil (cons nil emoji--labels))
         (goto-char (point-min))))))
 
@@ -328,14 +328,14 @@ the name is not known."
       (let ((glyph (cadr alist)))
         ;; Store all the emojis for later retrieval by
         ;; the search feature.
-        (when-let ((name (emoji--name glyph)))
+        (when-let* ((name (emoji--name glyph)))
           (setf (gethash (downcase name) emoji--all-bases) glyph))
         (if (display-graphic-p)
             ;; Remove glyphs we don't have in graphical displays.
             (if (let ((char (elt glyph 0)))
                   (if emoji--font
                       (font-has-char-p emoji--font char)
-                    (when-let ((font (car (internal-char-font nil char))))
+                    (when-let* ((font (car (internal-char-font nil char))))
                       (setq emoji--font font))))
                 (setq alist (cdr alist))
               ;; Remove the element.
@@ -575,7 +575,7 @@ the name is not known."
     (setq recent (delete glyph recent))
     (push glyph recent)
     ;; Shorten the list.
-    (when-let ((tail (nthcdr 30 recent)))
+    (when-let* ((tail (nthcdr 30 recent)))
       (setcdr tail nil))
     (setf (multisession-value emoji--recent) recent)))
 

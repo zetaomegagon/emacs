@@ -144,8 +144,8 @@ the default for a new file created there by you.
 This variable is relevant only if `backup-by-copying' is nil."
   :version "24.1"
   :type 'boolean
+  :local 'permanent-only
   :group 'backup)
-(put 'backup-by-copying-when-mismatch 'permanent-local t)
 
 (defcustom backup-by-copying-when-privileged-mismatch 200
   "Non-nil means create backups by copying to preserve a privileged owner.
@@ -178,9 +178,8 @@ use `kill-buffer-query-functions'."
   :type '(choice (const :tag "Never" nil)
                  (const :tag "On Emacs exit" t)
                  (const :tag "Whenever save-some-buffers is called" always))
+  :local 'permanent
   :group 'backup)
-(make-variable-buffer-local 'buffer-offer-save)
-(put 'buffer-offer-save 'permanent-local t)
 
 (defcustom find-file-existing-other-name t
   "Non-nil means find a file under alternative names, in existing buffers.
@@ -299,12 +298,12 @@ See also `backup-by-copying' and `backup-by-copying-when-linked'."
   :version "23.1")
 
 (defcustom version-control nil
-  "Control use of version numbers for backup files.
-When t, make numeric backup versions unconditionally.
-When nil, make them for files that have some already.
-The value `never' means do not make them."
+  "Control use of version-numbered backup files.
+When t, make numbered backup files unconditionally.
+When nil, make them for files that already have numbered backups.
+The value `never' means never make numbered backups."
   :type '(choice (const :tag "Never" never)
-		 (const :tag "If existing" nil)
+		 (const :tag "If numbered backups exist" nil)
                  (other :tag "Always" t))
   :safe #'version-control-safe-local-p
   :group 'backup)
@@ -314,28 +313,36 @@ The value `never' means do not make them."
   (or (booleanp x) (equal x 'never)))
 
 (defcustom dired-kept-versions 2
-  "When cleaning directory, number of versions to keep."
+  "When cleaning directory, number of versions of numbered backups to keep.
+See `version-control', `kept-old-versions' and `kept-new-versions' for
+more about keeping and deleting old versioned (a.k.a. \"numbered\")
+backup files."
   :type 'natnum
   :group 'backup
   :group 'dired)
 
 (defcustom delete-old-versions nil
-  "If t, delete excess backup versions silently.
-If nil, ask confirmation.  Any other value prevents any trimming."
+  "If t, delete excess numbered backup files silently.
+If nil, ask confirmation.  Any other value prevents any trimming.
+See `version-control', `kept-old-versions', `kept-new-versions'
+and `dired-kept-versions' for more about keeping and deleting old
+versioned (a.k.a. \"numbered\") backup files."
   :type '(choice (const :tag "Delete" t)
 		 (const :tag "Ask" nil)
 		 (other :tag "Leave" other))
   :group 'backup)
 
 (defcustom kept-old-versions 2
-  "Number of oldest versions to keep when a new numbered backup is made."
+  "Number of oldest versions to keep when a new numbered backup is made.
+See `version-control' for how Emacs decides when to make numbered backups."
   :type 'natnum
   :safe #'natnump
   :group 'backup)
 
 (defcustom kept-new-versions 2
   "Number of newest versions to keep when a new numbered backup is made.
-Includes the new backup.  Must be greater than 0."
+Includes the new backup.  Must be greater than 0.
+See `version-control' for how Emacs decides when to make numbered backups."
   :type 'natnum
   :safe #'natnump
   :group 'backup)
@@ -1275,15 +1282,17 @@ NOERROR is equal to `reload'), or otherwise emit a warning."
          ((assoc fn load-history) nil)  ;We loaded the right file.
          ((eq noerror 'reload) (load fn nil 'nomessage))
          ((and fn (memq feature features))
-          (funcall (if noerror #'warn #'error)
-                   "Feature `%S' is now provided by a different file %s"
-                   feature fn))
+          (let ((oldfile (symbol-file feature 'provide)))
+            (funcall (if noerror #'warn #'error)
+                     "Feature `%S' loaded from %S is now provided by %S"
+                     feature (if oldfile (abbreviate-file-name oldfile))
+                     (abbreviate-file-name fn))))
          (fn
           (funcall (if noerror #'warn #'error)
-                   "Could not load file %s" fn))
+                   "Could not load file: %s" fn))
          (t
           (funcall (if noerror #'warn #'error)
-                   "Could not locate file %s in load path"
+                   "Could not locate file in load path: %s"
                    (or filename (symbol-name feature)))))))
     res))
 
@@ -1331,7 +1340,7 @@ Tip: You can use this expansion of remote identifier components
      returns a remote file name for file \"/bin/sh\" that has the
      same remote identifier as FILE but expanded; a name such as
      \"/sudo:root@myhost:/bin/sh\"."
-  (when-let ((handler (find-file-name-handler file 'file-remote-p)))
+  (when-let* ((handler (find-file-name-handler file 'file-remote-p)))
     (funcall handler 'file-remote-p file identification connected)))
 
 ;; Probably this entire variable should be obsolete now, in favor of
@@ -2187,7 +2196,7 @@ if you want to permanently change your home directory after having
 started Emacs, set `abbreviated-home-dir' to nil so it will be recalculated)."
   ;; Get rid of the prefixes added by the automounter.
   (save-match-data                      ;FIXME: Why?
-    (if-let ((handler (find-file-name-handler filename 'abbreviate-file-name)))
+    (if-let* ((handler (find-file-name-handler filename 'abbreviate-file-name)))
         (funcall handler 'abbreviate-file-name filename)
       ;; Avoid treating /home/foo as /home/Foo during `~' substitution.
       (let ((case-fold-search (file-name-case-insensitive-p filename)))
@@ -2990,6 +2999,9 @@ since only a single case-insensitive search through the alist is made."
      ("\\.scm\\.[0-9]*\\'" . scheme-mode)
      ("\\.[ckz]?sh\\'\\|\\.shar\\'\\|/\\.z?profile\\'" . sh-mode)
      ("\\.bash\\'" . sh-mode)
+     ;; Bash builtin 'fc' creates a temp file named "bash-fc.XXXXXX"
+     ;; to edit shell commands from its history list.
+     ("/bash-fc\\.[0-9A-Za-z]\\{6\\}\\'" . sh-mode)
      ("/PKGBUILD\\'" . sh-mode)
      ("\\(/\\|\\`\\)\\.\\(bash_\\(profile\\|history\\|log\\(in\\|out\\)\\)\\|z?log\\(in\\|out\\)\\)\\'" . sh-mode)
      ("\\(/\\|\\`\\)\\.\\(shrc\\|zshrc\\|m?kshrc\\|bashrc\\|t?cshrc\\|esrc\\)\\'" . sh-mode)
@@ -3519,7 +3531,7 @@ we don't actually set it to the same mode the buffer already has."
      ;; If we didn't, look for an interpreter specified in the first line.
      ;; As a special case, allow for things like "#!/bin/env perl", which
      ;; finds the interpreter anywhere in $PATH.
-     (when-let
+     (when-let*
 	 ((interp (save-excursion
 		    (goto-char (point-min))
 		    (if (looking-at auto-mode-interpreter-regexp)
@@ -4148,7 +4160,7 @@ all the specified local variables, but ignores any settings of \"mode:\"."
           ;; Handle `lexical-binding' and other special local
           ;; variables.
           (dolist (variable permanently-enabled-local-variables)
-            (when-let ((elem (assq variable result)))
+            (when-let* ((elem (assq variable result)))
               (push elem file-local-variables-alist)))
           (hack-local-variables-apply))))))
 
@@ -4406,7 +4418,7 @@ already the major mode."
   (pcase var
     ('mode
      (let ((mode (intern (concat (downcase (symbol-name val))
-                          "-mode"))))
+                                 "-mode"))))
        (set-auto-mode-0 mode t)))
     ('eval
      (pcase val
@@ -6139,7 +6151,13 @@ Before and after saving the buffer, this function runs
 (defvar save-some-buffers--switch-window-callback nil)
 
 (defvar save-some-buffers-action-alist
-  `((?\C-r
+  `((?\M-~ ,(lambda (buf)
+              (with-current-buffer buf
+                (set-buffer-modified-p nil))
+              ;; Return t so we don't ask about BUF again.
+              t)
+           ,(purecopy "skip this buffer and mark it unmodified"))
+    (?\C-r
      ,(lambda (buf)
         (if (not enable-recursive-minibuffers)
             (progn (display-buffer buf)
@@ -6246,7 +6264,8 @@ in variables (rather than in buffers).")
 
 (defun save-some-buffers (&optional arg pred)
   "Save some modified file-visiting buffers.  Asks user about each one.
-You can answer \\`y' or \\`SPC' to save, \\`n' or \\`DEL' not to save, \\`C-r'
+You can answer \\`y' or \\`SPC' to save, \\`n' or \\`DEL' not to save,
+\\`M-~' not to save and also mark the buffer as unmodified, \\`C-r'
 to look at the buffer in question with `view-buffer' before
 deciding, \\`d' to view the differences using
 `diff-buffer-with-file', \\`!' to save the buffer and all remaining
@@ -6919,8 +6938,8 @@ buffer read-only, or keeping minor modes, etc.")
 
 (defun revert-buffer-restore-read-only ()
   "Preserve read-only state for `revert-buffer'."
-  (when-let ((state (and (boundp 'read-only-mode--state)
-                         (list read-only-mode--state))))
+  (when-let* ((state (and (boundp 'read-only-mode--state)
+                          (list read-only-mode--state))))
     (lambda ()
       (setq buffer-read-only (car state))
       (setq-local read-only-mode--state (car state)))))
@@ -8471,7 +8490,8 @@ If RESTART, restart Emacs after killing the current Emacs process."
      ;; Query the user for other things, perhaps.
      (run-hook-with-args-until-failure 'kill-emacs-query-functions)
      (or (null confirm)
-         (funcall confirm "Really exit Emacs? "))
+         (funcall confirm (format "Really %s Emacs? "
+                                  (if restart "restart" "exit"))))
      (kill-emacs nil restart))))
 
 (defun save-buffers-kill-terminal (&optional arg)

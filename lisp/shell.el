@@ -432,8 +432,8 @@ interpreted as local file name on the remote host.
 If `shell-mode' is invoked in a local buffer, and no history file name
 can be determined, a default according to the shell type is used."
   :type '(choice (const :tag "Default" nil) (const :tag "Suppress" t) file)
+  :local 'permanent-only
   :version "30.1")
-(put 'shell-history-file-name 'permanent-local t)
 
 ;;; Basic Procedures
 
@@ -1659,19 +1659,19 @@ Returns t if successful."
   :version "29.1")
 
 (defface shell-highlight-undef-defined-face
-  '((t :inherit 'font-lock-function-name-face))
+  '((t :inherit font-lock-function-name-face))
   "Face used for existing shell commands."
   :group 'shell
   :version "29.1")
 
 (defface shell-highlight-undef-undefined-face
-  '((t :inherit 'font-lock-warning-face))
+  '((t :inherit font-lock-warning-face))
   "Face used for non-existent shell commands."
   :group 'shell
   :version "29.1")
 
 (defface shell-highlight-undef-alias-face
-  '((t :inherit 'font-lock-variable-name-face))
+  '((t :inherit font-lock-variable-name-face))
   "Face used for shell command aliases."
   :group 'shell
   :version "29.1")
@@ -1802,7 +1802,7 @@ works better if `comint-fontify-input-mode' is enabled."
       (progn
         (remove-hook 'comint-indirect-setup-hook shell--highlight-undef-indirect t)
         (setq shell--highlight-undef-indirect nil)
-        (when-let ((buf (comint-indirect-buffer t)))
+        (when-let* ((buf (comint-indirect-buffer t)))
           (with-current-buffer buf
             (font-lock-remove-keywords nil shell-highlight-undef-keywords))))
     (font-lock-remove-keywords nil shell-highlight-undef-keywords))
@@ -1842,7 +1842,7 @@ works better if `comint-fontify-input-mode' is enabled."
               (font-lock-add-keywords nil shell-highlight-undef-keywords t))))
       (cond (comint-fontify-input-mode
              (setq shell--highlight-undef-indirect setup)
-             (if-let ((buf (comint-indirect-buffer t)))
+             (if-let* ((buf (comint-indirect-buffer t)))
                  (with-current-buffer buf
                    (funcall setup))
                (add-hook 'comint-indirect-setup-hook setup nil t)))

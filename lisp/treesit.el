@@ -150,7 +150,7 @@ In a multi-language buffer, make sure
 `treesit-language-at' wouldn't return the correct result."
   (if treesit-language-at-point-function
       (funcall treesit-language-at-point-function position)
-    (when-let ((parser (car (treesit-parser-list))))
+    (when-let* ((parser (car (treesit-parser-list))))
       (treesit-parser-language parser))))
 
 ;;; Node API supplement
@@ -198,9 +198,9 @@ unless PARSER-OR-LANG is a parser, or PARSER-OR-LANG is a
 language and doesn't match the language of the local parser."
   (let* ((root (if (treesit-parser-p parser-or-lang)
                    (treesit-parser-root-node parser-or-lang)
-                 (or (when-let ((parser
-                                 (car (treesit-local-parsers-at
-                                       pos parser-or-lang))))
+                 (or (when-let* ((parser
+                                  (car (treesit-local-parsers-at
+                                        pos parser-or-lang))))
                        (treesit-parser-root-node parser))
                      (treesit-buffer-root-node
                       (or parser-or-lang
@@ -256,10 +256,10 @@ parser first."
   (let* ((lang-at-point (treesit-language-at beg))
          (root (if (treesit-parser-p parser-or-lang)
                    (treesit-parser-root-node parser-or-lang)
-                 (or (when-let ((parser
-                                 (car (treesit-local-parsers-on
-                                       beg end (or parser-or-lang
-                                                   lang-at-point)))))
+                 (or (when-let* ((parser
+                                  (car (treesit-local-parsers-on
+                                        beg end (or parser-or-lang
+                                                    lang-at-point)))))
                        (treesit-parser-root-node parser))
                      (treesit-buffer-root-node
                       (or parser-or-lang lang-at-point))))))
@@ -294,11 +294,11 @@ Use the first parser in the parser list if LANGUAGE is omitted.
 If LANGUAGE is non-nil, use the first parser for LANGUAGE with
 TAG in the parser list, or create one if none exists.  TAG
 defaults to nil."
-  (if-let ((parser
-            (if language
-                (treesit-parser-create language nil nil tag)
-              (or (car (treesit-parser-list))
-                  (signal 'treesit-no-parser (list (current-buffer)))))))
+  (if-let* ((parser
+             (if language
+                 (treesit-parser-create language nil nil tag)
+               (or (car (treesit-parser-list))
+                   (signal 'treesit-no-parser (list (current-buffer)))))))
       (treesit-parser-root-node parser)))
 
 (defun treesit-filter-child (node pred &optional named)
@@ -382,8 +382,8 @@ If NAMED is non-nil, count named child only."
 
 (defun treesit-node-field-name (node)
   "Return the field name of NODE as a child of its parent."
-  (when-let ((parent (treesit-node-parent node))
-             (idx (treesit-node-index node)))
+  (when-let* ((parent (treesit-node-parent node))
+              (idx (treesit-node-index node)))
     (treesit-node-field-name-for-child parent idx)))
 
 (defun treesit-node-get (node instructions)
@@ -623,20 +623,39 @@ Return the merged list of ranges."
          ;; New range and old range don't intersect, new comes
          ;; before, push new.
          ((<= new-end old-beg)
-          (push (car new-ranges) result)
+          (unless (eq new-beg new-end)
+            (push (car new-ranges) result))
           (setq new-ranges (cdr new-ranges)))
          ;; New range and old range don't intersect, old comes
          ;; before, push old.
          ((<= old-end new-beg)
-          (push (car old-ranges) result)
+          (unless (eq old-beg old-end)
+            (push (car old-ranges) result))
           (setq old-ranges (cdr old-ranges)))
          (t ;; New and old range intersect, discard old.
           (setq old-ranges (cdr old-ranges))))))
-    (let ((left-over (or new-ranges old-ranges)))
-      (dolist (range left-over)
-        (push range result)))
+    ;; At this point, either old-ranges has left-over or new-ranges has
+    ;; left-over, but not both.
+    (while old-ranges
+      ;; For each left-over old range, push to result unless it
+      ;; intersects with START-END.
+      (let ((old-beg (caar old-ranges))
+            (old-end (cdar old-ranges)))
+        (unless (or (and (< start old-end)
+                         (< old-beg end))
+                    (eq old-beg old-end))
+          (push (car old-ranges) result)))
+      (setq old-ranges (cdr old-ranges)))
+    ;; Unconditionally push left-over new ranges to result.
+    (while new-ranges
+      (unless (eq (caar new-ranges) (cdar new-ranges))
+        (push (car new-ranges) result))
+      (setq new-ranges (cdr new-ranges)))
     (nreverse result)))
 
+;; TODO: truncate ranges that exceeds START and END instead of
+;; discarding them.  Merge into treesit--merge-ranges so we don't loop
+;; over the ranges twice (might be premature optimization tho).
 (defun treesit--clip-ranges (ranges start end)
   "Clip RANGES in between START and END.
 RANGES is a list of ranges of the form (BEG . END).  Ranges
@@ -659,8 +678,8 @@ instead.  HOST-PARSER is the host parser which created the local
 PARSER."
   (let ((res nil))
     (dolist (ov (overlays-at (or pos (point))))
-      (when-let ((parser (overlay-get ov 'treesit-parser))
-                 (host-parser (overlay-get ov 'treesit-host-parser)))
+      (when-let* ((parser (overlay-get ov 'treesit-parser))
+                  (host-parser (overlay-get ov 'treesit-host-parser)))
         (when (or (null language)
                   (eq (treesit-parser-language parser)
                       language))
@@ -681,8 +700,8 @@ instead.  HOST-PARSER is the host parser which created the local
 PARSER."
   (let ((res nil))
     (dolist (ov (overlays-in (or beg (point-min)) (or end (point-max))))
-      (when-let ((parser (overlay-get ov 'treesit-parser))
-                 (host-parser (overlay-get ov 'treesit-host-parser)))
+      (when-let* ((parser (overlay-get ov 'treesit-parser))
+                  (host-parser (overlay-get ov 'treesit-host-parser)))
         (when (or (null language)
                   (eq (treesit-parser-language parser)
                       language))
@@ -696,10 +715,10 @@ For every local parser overlay between BEG and END, if its
 `treesit-parser-ov-timestamp' is smaller than MODIFIED-TICK, delete
 it."
   (dolist (ov (overlays-in beg end))
-    (when-let ((ov-timestamp
-                (overlay-get ov 'treesit-parser-ov-timestamp)))
+    (when-let* ((ov-timestamp
+                 (overlay-get ov 'treesit-parser-ov-timestamp)))
       (when (< ov-timestamp modified-tick)
-        (when-let ((local-parser (overlay-get ov 'treesit-parser)))
+        (when-let* ((local-parser (overlay-get ov 'treesit-parser)))
           (treesit-parser-delete local-parser))
         (delete-overlay ov)))))
 
@@ -829,10 +848,15 @@ opposed to embedded parsers which parses only part of the buffer.")
 (defvar-local treesit-font-lock-settings nil
   "A list of SETTINGs for treesit-based fontification.
 
-The exact format of each SETTING is considered internal.  Use
-`treesit-font-lock-rules' to set this variable.
+Use `treesit-font-lock-rules' to set this variable.  The exact format of
+each individual SETTING is considered internal and will change in the
+future.  Use `treesit-font-lock-setting-query',
+`treesit-font-lock-setting-enable', etc, to access each field.
 
-Each SETTING has the form:
+Below information is considered internal and only provided to help
+debugging:
+
+Currently each SETTING has the form:
 
     (QUERY ENABLE FEATURE OVERRIDE)
 
@@ -850,17 +874,31 @@ OVERRIDE is the override flag for this query.  Its value can be
 t, nil, append, prepend, keep.  See more in
 `treesit-font-lock-rules'.")
 
-(defsubst treesit--font-lock-setting-feature (setting)
-  "Return the feature of SETTING.
-SETTING should be a setting in `treesit-font-lock-settings'."
+;; Follow cl-defstruct naming conventions, in case we use cl-defstruct
+;; in the future.
+(defsubst treesit-font-lock-setting-query (setting)
+  "Return the QUERY of SETTING in `treesit-font-lock-settings'."
+  (nth 0 setting))
+
+(defsubst treesit-font-lock-setting-enable (setting)
+  "Return the ENABLE flag of SETTING in `treesit-font-lock-settings'."
+  (nth 1 setting))
+
+(defsubst treesit-font-lock-setting-feature (setting)
+  "Return the FEATURE symbol of SETTING in `treesit-font-lock-settings'."
   (nth 2 setting))
 
-(defsubst treesit--font-lock-setting-enable (setting)
+(defsubst treesit-font-lock-setting-override (setting)
+  "Return the OVERRIDE flag of SETTING in `treesit-font-lock-settings'."
+  (nth 3 setting))
+
+(defsubst treesit--font-lock-setting-clone-enable (setting)
   "Return enabled SETTING."
   (let ((new-setting (copy-tree setting)))
     (setf (nth 1 new-setting) t)
     new-setting))
 
+;; FIXME: Rewrite this in more readable fashion.
 (defun treesit--font-lock-level-setter (sym val)
   "Custom setter for `treesit-font-lock-level'.
 Set the default value of SYM to VAL, recompute fontification
@@ -1105,7 +1143,7 @@ signals the `treesit-font-lock-error' error if that happens.
 
 If LANGUAGE is non-nil, only compute features for that language,
 and leave settings for other languages unchanged."
-  (when-let ((intersection (cl-intersection add-list remove-list)))
+  (when-let* ((intersection (cl-intersection add-list remove-list)))
     (signal 'treesit-font-lock-error
             (list "ADD-LIST and REMOVE-LIST contain the same feature"
                   intersection)))
@@ -1152,12 +1190,12 @@ all existing rules.
 
 If FEATURE is non-nil, add RULES before/after rules for FEATURE.  See
 docstring of `treesit-font-lock-rules' for what is a feature."
-  (let ((rules (seq-map #'treesit--font-lock-setting-enable rules))
+  (let ((rules (seq-map #'treesit--font-lock-setting-clone-enable rules))
         (feature-idx
          (when feature
            (cl-position-if
             (lambda (setting)
-              (eq (treesit--font-lock-setting-feature setting) feature))
+              (eq (treesit-font-lock-setting-feature setting) feature))
             treesit-font-lock-settings))))
     (pcase (cons how feature)
       ((or '(:after . nil) '(nil . nil))
@@ -1329,6 +1367,10 @@ If LOUDLY is non-nil, display some debugging information."
          (root-nodes
           (mapcar #'treesit-parser-root-node
                   (append local-parsers global-parsers))))
+    ;; Can't we combine all the queries in each setting into one big
+    ;; query? That should make font-lock faster? I tried, it shaved off
+    ;; 1ms in xdisp.c, and 0.3ms in a small C file (for typing a single
+    ;; character), not worth it.  --yuan
     (dolist (setting treesit-font-lock-settings)
       (let* ((query (nth 0 setting))
              (enable (nth 1 setting))
@@ -1350,7 +1392,7 @@ If LOUDLY is non-nil, display some debugging information."
               (setq treesit--font-lock-fast-mode nil))))
 
         ;; Only activate if ENABLE flag is t.
-        (when-let
+        (when-let*
             ((activate (eq t enable))
              (nodes (if (eq t treesit--font-lock-fast-mode)
                         (mapcan
@@ -1636,7 +1678,7 @@ See `treesit-simple-indent-presets'.")
 
                     (goto-char bol)
                     (setq this-line-has-prefix
-                          (and (looking-at-p adaptive-fill-regexp)
+                          (and (looking-at adaptive-fill-regexp)
                                (not (string-match-p
                                      (rx bos (* whitespace) eos)
                                      (match-string 0)))))
@@ -2293,8 +2335,8 @@ friends."
             (if (= arg -1)
                 (cons (treesit-node-start prev)
                       (treesit-node-end prev))
-              (when-let ((n (treesit-node-child
-                             parent (+ arg (treesit-node-index prev t)) t)))
+              (when-let* ((n (treesit-node-child
+                              parent (+ arg (treesit-node-index prev t)) t)))
                 (cons (treesit-node-end n)
                       (treesit-node-start n))))
           (loop (treesit-node-next-sibling prev t)
@@ -2792,7 +2834,9 @@ is `nested'.
 
 Return nil if `treesit-defun-type-regexp' isn't set and `defun'
 isn't defined in `treesit-thing-settings'."
-  (when (or treesit-defun-type-regexp (treesit-thing-defined-p 'defun))
+  (when (or treesit-defun-type-regexp
+            (treesit-thing-defined-p
+             'defun (treesit-language-at (point))))
     (treesit-thing-at-point
      (or treesit-defun-type-regexp 'defun) treesit-defun-tactic)))
 
@@ -2816,7 +2860,7 @@ The delimiter between nested defun names is controlled by
   (let ((node (treesit-defun-at-point))
         (name nil))
     (while node
-      (when-let ((new-name (treesit-defun-name node)))
+      (when-let* ((new-name (treesit-defun-name node)))
         (if name
             (setq name (concat new-name
                                treesit-add-log-defun-delimiter
@@ -2938,7 +2982,8 @@ when a major mode sets it.")
 
 (defun treesit-outline-search (&optional bound move backward looking-at)
   "Search for the next outline heading in the syntax tree.
-See the descriptions of arguments in `outline-search-function'."
+For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
+`outline-search-function'."
   (if looking-at
       (when-let* ((node (or (treesit-thing-at (pos-eol) treesit-outline-predicate)
                             (treesit-thing-at (pos-bol) treesit-outline-predicate)))
@@ -3047,6 +3092,10 @@ If `treesit-defun-name-function' is non-nil, set up
 
 If `treesit-simple-imenu-settings' is non-nil, set up Imenu.
 
+If either `treesit-outline-predicate' or `treesit-simple-imenu-settings'
+are non-nil, and Outline minor mode settings don't already exist, setup
+Outline minor mode.
+
 If `sexp', `sentence' are defined in `treesit-thing-settings',
 enable tree-sitter navigation commands for them.
 
@@ -3128,7 +3177,7 @@ before calling this function."
 
   ;; Remove existing local parsers.
   (dolist (ov (overlays-in (point-min) (point-max)))
-    (when-let ((parser (overlay-get ov 'treesit-parser)))
+    (when-let* ((parser (overlay-get ov 'treesit-parser)))
       (treesit-parser-delete parser)
       (delete-overlay ov))))
 
@@ -3350,9 +3399,9 @@ in the region."
           (when (and top-level (not highlight-only))
             (erase-buffer)
             (treesit--explorer-draw-node top-level))
-          (when-let ((pos (treesit--explorer-highlight-node nodes-hl))
-                     (window (get-buffer-window
-                              treesit--explorer-buffer)))
+          (when-let* ((pos (treesit--explorer-highlight-node nodes-hl))
+                      (window (get-buffer-window
+                               treesit--explorer-buffer)))
             (if highlight-only
                 (goto-char pos)
               ;; If HIGHLIGHT-ONLY is nil, we erased the buffer and
@@ -3653,26 +3702,26 @@ nil, the grammar is installed to the standard location, the
                        "Language: "
                        (mapcar #'car treesit-language-source-alist)))
                      'interactive))
-  (when-let ((recipe
-              (or (assoc lang treesit-language-source-alist)
-                  (if (eq out-dir 'interactive)
-                      (treesit--install-language-grammar-build-recipe
-                       lang)
-                    (signal 'treesit-error `("Cannot find recipe for this language" ,lang)))))
-             (default-out-dir
-              (or (car treesit--install-language-grammar-out-dir-history)
-                  (locate-user-emacs-file "tree-sitter")))
-             (out-dir
-              (if (eq out-dir 'interactive)
-                  (read-string
-                   (format "Install to (default: %s): "
-                           default-out-dir)
-                   nil
-                   'treesit--install-language-grammar-out-dir-history
-                   default-out-dir)
-                ;; When called non-interactively, OUT-DIR should
-                ;; default to DEFAULT-OUT-DIR.
-                (or out-dir default-out-dir))))
+  (when-let* ((recipe
+               (or (assoc lang treesit-language-source-alist)
+                   (if (eq out-dir 'interactive)
+                       (treesit--install-language-grammar-build-recipe
+                        lang)
+                     (signal 'treesit-error `("Cannot find recipe for this language" ,lang)))))
+              (default-out-dir
+               (or (car treesit--install-language-grammar-out-dir-history)
+                   (locate-user-emacs-file "tree-sitter")))
+              (out-dir
+               (if (eq out-dir 'interactive)
+                   (read-string
+                    (format "Install to (default: %s): "
+                            default-out-dir)
+                    nil
+                    'treesit--install-language-grammar-out-dir-history
+                    default-out-dir)
+                 ;; When called non-interactively, OUT-DIR should
+                 ;; default to DEFAULT-OUT-DIR.
+                 (or out-dir default-out-dir))))
     (condition-case err
         (progn
           (apply #'treesit--install-language-grammar-1

@@ -114,7 +114,7 @@
 (define-derived-mode emacs-news-mode text-mode "NEWS"
   "Major mode for editing the Emacs NEWS file."
   ;; Disable buttons.
-  (button-mode nil)
+  (button-mode -1)
   ;; And make the buffer writable.  This is used when toggling
   ;; emacs-news-mode.
   (setq buffer-read-only nil)
@@ -247,7 +247,7 @@ untagged NEWS entry."
         (while (re-search-forward "'\\([^-][^ \t\n]+\\)'" nil t)
           ;; Filter out references to key sequences.
           (let ((string (match-string 1)))
-            (when-let ((symbol (intern-soft string)))
+            (when-let* ((symbol (intern-soft string)))
               (when (or (boundp symbol)
                         (fboundp symbol))
                 (buttonize-region (match-beginning 1) (match-end 1)

@@ -574,13 +574,16 @@ R1 and R2 are dotted pairs.  Colorize it with FACE."
 
 (defun chart-bar-quickie (dir title namelst nametitle numlst numtitle
 			      &optional max sort-pred)
-  "Wash over the complex EIEIO stuff and create a nice bar chart.
-Create it going in direction DIR [`horizontal' `vertical'] with TITLE
-using a name sequence NAMELST labeled NAMETITLE with values NUMLST
-labeled NUMTITLE.
-Optional arguments:
-Set the chart's max element display to MAX, and sort lists with
-SORT-PRED if desired."
+  "Create a bar chart named TITLE in direction DIR [`horizontal' `vertical'].
+NAMELST is the list of bar names and NAMETITLE is the name the of axis
+containing them.
+NUMLST is the list of values and NUMTITLE is the name of the value
+axis.
+Optional argument MAX limits the chart's max element display to MAX by
+passing it as second argument to `chart-trim', otherwise the chart's
+display is unlimited.
+Optional argument SORT-PRED is a predicate function passed as second
+argument to `chart-sort' to sort the lists if desired."
   (let ((nc (make-instance 'chart-bar
 			   :title title
 			   :key-label "8-m"  ; This is a text key pic
@@ -649,7 +652,7 @@ SORT-PRED if desired."
   "Compute total size of files in directory DIR and its subdirectories.
 DIR is assumed to be a directory, verified by the caller."
   (let ((size 0))
-    (dolist (file (directory-files-recursively dir "." t))
+    (dolist (file (directory-files-recursively dir "" t))
       (let ((fsize (nth 7 (file-attributes file))))
         (if (> fsize 0)
             (setq size

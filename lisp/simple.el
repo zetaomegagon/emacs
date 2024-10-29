@@ -2399,7 +2399,7 @@ mode when reading the command name."
 (defun command-completion-using-modes-p (symbol buffer)
   "Say whether SYMBOL has been marked as a mode-specific command in BUFFER."
   ;; Check the modes.
-  (when-let ((modes (command-modes symbol)))
+  (when-let* ((modes (command-modes symbol)))
     ;; Common fast case: Just a single mode.
     (if (null (cdr modes))
         (or (provided-mode-derived-p
@@ -2801,10 +2801,10 @@ don't clear it."
          (t
           ;; Pass `cmd' rather than `final', for the backtrace's sake.
           (prog1 (call-interactively cmd record-flag keys)
-            (when-let ((info
-                        (and (symbolp cmd)
-                             (not (get cmd 'command-execute-obsolete-warned))
-                             (get cmd 'byte-obsolete-info))))
+            (when-let* ((info
+                         (and (symbolp cmd)
+                              (not (get cmd 'command-execute-obsolete-warned))
+                              (get cmd 'byte-obsolete-info))))
               (put cmd 'command-execute-obsolete-warned t)
               (message "%s" (macroexp--obsolete-warning
                              cmd info "command"
@@ -4779,7 +4779,7 @@ Names'.
 
 If a file name handler is unable to retrieve the effective uid,
 this function will instead return -1."
-  (if-let ((handler (find-file-name-handler default-directory 'file-user-uid)))
+  (if-let* ((handler (find-file-name-handler default-directory 'file-user-uid)))
       (funcall handler 'file-user-uid)
     (user-uid)))
 
@@ -4791,7 +4791,7 @@ Names'.
 
 If a file name handler is unable to retrieve the effective gid,
 this function will instead return -1."
-  (if-let ((handler (find-file-name-handler default-directory 'file-group-gid)))
+  (if-let* ((handler (find-file-name-handler default-directory 'file-group-gid)))
       (funcall handler 'file-group-gid)
     (group-gid)))
 
@@ -5817,6 +5817,20 @@ move the yanking point; just return the Nth kill forward."
   :type 'boolean
   :group 'killing)
 
+(defcustom kill-region-dwim nil
+  "Behavior when `kill-region' is invoked without an active region.
+If set to nil (default), kill the region even if it is inactive,
+signalling an error if there is no region.
+If set to `emacs-word', kill the last word as defined by the
+current major mode.
+If set to `unix-word', kill the last word in the style of a shell like
+Bash.  This ignores the major mode like `unix-word-rubout' (which see)."
+  :type '(choice (const :tag "Kill region even when inactive" nil)
+                 (const :tag "Kill a word like `backward-kill-word'" emacs-word)
+                 (const :tag "Kill a word like Bash would" unix-word))
+  :group 'killing
+  :version "31.1")
+
 (defun kill-region (beg end &optional region)
   "Kill (\"cut\") text between point and mark.
 This deletes the text from the buffer and saves it in the kill ring.
@@ -5843,27 +5857,43 @@ Lisp programs should use this function for killing text.
  (To delete text, use `delete-region'.)
 Supply two arguments, character positions BEG and END indicating the
  stretch of text to be killed.  If the optional argument REGION is
- non-nil, the function ignores BEG and END, and kills the current
+ `region', the function ignores BEG and END, and kills the current
  region instead.  Interactively, REGION is always non-nil, and so
- this command always kills the current region."
+ this command always kills the current region.  It is possible to
+ override this behavior by customising the user option
+ `kill-region-dwim'."
   ;; Pass mark first, then point, because the order matters when
   ;; calling `kill-append'.
   (interactive (progn
-                 (let ((beg (mark))
+                 (let ((beg (mark kill-region-dwim))
                        (end (point)))
-                   (unless (and beg end)
+                   (cond
+                    ((and kill-region-dwim (not (use-region-p)))
+                     (list beg end kill-region-dwim))
+                    ((not (and beg end))
                      (user-error "The mark is not set now, so there is no region"))
-                   (list beg end 'region))))
+                    ((list beg end 'region))))))
+
   (condition-case nil
-      (let ((string (if region
-                        (funcall region-extract-function 'delete)
-                      (filter-buffer-substring beg end 'delete))))
+      (let ((string (cond
+                     ((memq region '(unix-word emacs-word))
+                      (let ((end (point)))
+                        (save-excursion
+                          (if (eq region 'emacs-word)
+                              (forward-word -1)
+                            (forward-unix-word -1))
+                          (filter-buffer-substring (point) end 'delete))))
+                     (region
+                      (funcall region-extract-function 'delete))
+                     ((filter-buffer-substring beg end 'delete)))))
 	(when string			;STRING is nil if BEG = END
 	  ;; Add that string to the kill ring, one way or another.
-	  (if (eq last-command 'kill-region)
+	  (if (and (not (memq region '(unix-word emacs-word)))
+		   (eq last-command 'kill-region))
 	      (kill-append string (< end beg))
 	    (kill-new string)))
-	(when (or string (eq last-command 'kill-region))
+	(when (and (not (memq region '(unix-word emacs-word)))
+		   (or string (eq last-command 'kill-region)))
 	  (setq this-command 'kill-region))
 	(setq deactivate-mark t)
 	nil)
@@ -7674,8 +7704,8 @@ This has no effect when the variable `line-move-visual' is non-nil."
 A non-nil setting overrides the variable `line-move-visual', which see."
   :type '(choice integer
 		 (const :tag "None" nil))
+  :local t
   :group 'editing-basics)
-(make-variable-buffer-local 'goal-column)
 
 (defvar temporary-goal-column 0
   "Current goal column for vertical motion.
@@ -8896,14 +8926,71 @@ constitute a word."
       ;; If we found something nonempty, return it as a string.
       (unless (= start end)
 	(buffer-substring-no-properties start end)))))
+
+(defun forward-unix-word (n &optional delim)
+  "Move forward N Unix-words.
+A Unix-word is whitespace-delimited.
+A negative N means go backwards to the beginning of Unix-words.
+
+Unix-words differ from Emacs words in that they are always delimited by
+whitespace, regardless of the buffer's syntax table.  This function
+emulates how C-w at the Unix terminal or shell identifies words.
+
+Optional argument DELIM specifies what characters are considered
+whitespace.  It is a string as might be passed to `skip-chars-forward'.
+The default is \"\\s\\f\\n\\r\\t\\v\".  Do not prefix a `^' character."
+  (when (string-prefix-p "^" delim)
+    (error "DELIM argument must not begin with `^'"))
+  (unless (zerop n)
+    ;; We do skip over newlines by default because `backward-word' does.
+    (let* ((delim (or delim "\s\f\n\r\t\v"))
+           (ndelim (format "^%s" delim))
+           (start (point))
+           (fun (if (> n 0)
+                    #'skip-chars-forward
+                  #'skip-chars-backward)))
+      (dotimes (_ (abs n))
+        (funcall fun delim)
+        (funcall fun ndelim))
+      (constrain-to-field nil start))))
+
+(defun unix-word-rubout (arg)
+  "Kill ARG Unix-words backwards.
+A Unix-word is whitespace-delimited.
+Interactively, ARG is the numeric prefix argument, defaulting to 1.
+A negative ARG means to kill forwards.
+
+Unix-words differ from Emacs words in that they are always delimited by
+whitespace, regardless of the buffer's syntax table.
+Thus, this command emulates C-w at the Unix terminal or shell.
+See also this command's nakesake in Info node
+`(readline)Commands For Killing'."
+  (interactive "^p")
+  (let ((start (point)))
+    (forward-unix-word (- arg))
+    (kill-region start (point))))
+
+(defun unix-filename-rubout (arg)
+  "Kill ARG Unix-words backwards, also treating slashes as word delimiters.
+A Unix-word is whitespace-delimited.
+Interactively, ARG is the numeric prefix argument, defaulting to 1.
+A negative ARG means to kill forwards.
+
+This is like `unix-word-rubout' (which see), but `/' and `\\' are also
+treated as delimiting words.  See this command's namesake in Info node
+`(readline)Commands For Killing'."
+  (interactive "^p")
+  (let ((start (point)))
+    (forward-unix-word (- arg) "\\\\/\s\f\n\r\t\v")
+    (kill-region start (point))))
 
 (defcustom fill-prefix nil
   "String for filling to insert at front of new line, or nil for none."
   :type '(choice (const :tag "None" nil)
                  string)
   :safe #'string-or-null-p
+  :local t
   :group 'fill)
-(make-variable-buffer-local 'fill-prefix)
 
 (defcustom auto-fill-inhibit-regexp nil
   "Regexp to match lines that should not be auto-filled."
@@ -9967,7 +10054,7 @@ the completions is popped up and down."
         (let ((inhibit-read-only t))
           (add-text-properties (point) (min (1+ (point)) (point-max))
                                '(first-completion t))))
-    (when-let ((pos (next-single-property-change (point) 'mouse-face)))
+    (when-let* ((pos (next-single-property-change (point) 'mouse-face)))
       (goto-char pos))))
 
 (defun last-completion ()
@@ -9977,7 +10064,7 @@ the completions is popped up and down."
               (point-max) 'mouse-face nil (point-min)))
   ;; Move to the start of last one.
   (unless (get-text-property (point) 'mouse-face)
-    (when-let ((pos (previous-single-property-change (point) 'mouse-face)))
+    (when-let* ((pos (previous-single-property-change (point) 'mouse-face)))
       (goto-char pos))))
 
 (defun previous-completion (n)
@@ -10404,10 +10491,10 @@ to move point between completions.\n\n")))))))
 (defun switch-to-completions ()
   "Select the completion list window."
   (interactive)
-  (when-let ((window (or (get-buffer-window "*Completions*" 0)
-		         ;; Make sure we have a completions window.
-                         (progn (minibuffer-completion-help)
-                                (get-buffer-window "*Completions*" 0)))))
+  (when-let* ((window (or (get-buffer-window "*Completions*" 0)
+		          ;; Make sure we have a completions window.
+                          (progn (minibuffer-completion-help)
+                                 (get-buffer-window "*Completions*" 0)))))
     (select-window window)
     (when (bobp)
       (cond

@@ -100,7 +100,7 @@ a font height that isn't optimal."
 ;; which are generally available.
 (defcustom face-font-family-alternatives
   (mapcar (lambda (arg) (mapcar 'purecopy arg))
-  '(("Monospace" "courier" "fixed")
+  '(("Monospace" "Cascadia Code" "Lucida Console" "courier" "fixed")
 
     ;; Monospace Serif is an Emacs invention, intended to work around
     ;; portability problems when using Courier.  It should work well
@@ -133,7 +133,10 @@ a font height that isn't optimal."
     ;; This is present for backward compatibility.
     ("courier" "CMU Typewriter Text" "fixed")
 
-    ("Sans Serif" "helv" "helvetica" "arial" "fixed")
+    ("Sans Serif"
+     ;; https://en.wikipedia.org/wiki/List_of_typefaces_included_with_Microsoft_Windows
+     "Calibri" "Tahoma" "Lucida Sans Unicode"
+     "helv" "helvetica" "arial" "fixed")
     ("helv" "helvetica" "arial" "fixed")))
   "Alist of alternative font family names.
 Each element has the form (FAMILY ALTERNATIVE1 ALTERNATIVE2 ...).
@@ -2094,7 +2097,7 @@ do that, use `get-text-property' and `get-char-property'."
   (let (faces)
     (when text
       ;; Try to get a face name from the buffer.
-      (when-let ((face (thing-at-point 'face)))
+      (when-let* ((face (thing-at-point 'face)))
         (push face faces)))
     ;; Add the named faces that the `read-face-name' or `face' property uses.
     (let ((faceprop (or (get-char-property (point) 'read-face-name)

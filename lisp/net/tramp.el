@@ -700,12 +700,15 @@ The `sudo' program appears to insert a `^@' character into the prompt."
 (defcustom tramp-otp-password-prompt-regexp
   (rx-to-string
    `(: bol (* nonl)
-       ;; JumpCloud.
-       (group (| "Verification code"))
+       (group (|
+	 ;; JumpCloud.
+	 "Verification code"
+	 ;; TACC HPC.  <https://docs.tacc.utexas.edu/basics/mfa/>
+	 "TACC Token Code"))
        (* nonl) (any . ,tramp-compat-password-colon-equivalents) (* blank)))
   "Regexp matching one-time password prompts.
 The regexp should match at end of buffer."
-  :version "29.2"
+  :version "30.2"
   :type 'regexp
   :link '(tramp-info-link :tag "Tramp manual" tramp-otp-password-prompt-regexp))
 
@@ -850,11 +853,9 @@ filename part, though.")
   "Buffer name for a temporary buffer.
 It shall be used in combination with `generate-new-buffer-name'.")
 
-(defvar tramp-temp-buffer-file-name nil
+(defvar-local tramp-temp-buffer-file-name nil
   "File name of a persistent local temporary file.
 Useful for \"rsync\" like methods.")
-
-(make-variable-buffer-local 'tramp-temp-buffer-file-name)
 (put 'tramp-temp-buffer-file-name 'permanent-local t)
 
 (defcustom tramp-syntax 'default
@@ -1520,13 +1521,15 @@ calling HANDLER.")
   (cl-defstruct (tramp-file-name (:type list) :named)
     method user domain host port localname hop))
 
-(function-put #'tramp-file-name-method 'tramp-suppress-trace t)
-(function-put #'tramp-file-name-user 'tramp-suppress-trace t)
-(function-put #'tramp-file-name-domain 'tramp-suppress-trace t)
-(function-put #'tramp-file-name-host 'tramp-suppress-trace t)
-(function-put #'tramp-file-name-port 'tramp-suppress-trace t)
-(function-put #'tramp-file-name-localname 'tramp-suppress-trace t)
-(function-put #'tramp-file-name-hop 'tramp-suppress-trace t)
+(tramp--with-startup
+ (function-put #'tramp-file-name-method 'tramp-suppress-trace t)
+ (function-put #'tramp-file-name-user 'tramp-suppress-trace t)
+ (function-put #'tramp-file-name-domain 'tramp-suppress-trace t)
+ (function-put #'tramp-file-name-host 'tramp-suppress-trace t)
+ (function-put #'tramp-file-name-port 'tramp-suppress-trace t)
+ (function-put #'tramp-file-name-localname 'tramp-suppress-trace t)
+ (function-put #'tramp-file-name-hop 'tramp-suppress-trace t)
+ (function-put #'make-tramp-file-name 'tramp-suppress-trace t))
 
 ;;;###tramp-autoload
 (defconst tramp-null-hop
@@ -2475,8 +2478,11 @@ Fall back to normal file name handler if no Tramp file name handler exists."
 			  ;; We flush connection properties
 			  ;; "process-name" and "process-buffer",
 			  ;; because the operations shall be applied
-			  ;; in the main connection process.
-                          ;; If `non-essential' is non-nil, Tramp shall
+			  ;; in the main connection process.  In order
+			  ;; to avoid superfluous debug buffers during
+			  ;; host name completion, we adapt
+			  ;; `tramp-verbose'.
+			  ;; If `non-essential' is non-nil, Tramp shall
 		          ;; not open a new connection.
 		          ;; If Tramp detects that it shouldn't continue
 		          ;; to work, it throws the `suppress' event.
@@ -2486,8 +2492,11 @@ Fall back to normal file name handler if no Tramp file name handler exists."
 		          ;; In both cases, we try the default handler then.
 			  (with-tramp-saved-connection-properties
 			      v '("process-name" "process-buffer")
-			    (tramp-flush-connection-property v "process-name")
-			    (tramp-flush-connection-property v "process-buffer")
+			    (let ((tramp-verbose
+				   (if minibuffer-completing-file-name
+				       0 tramp-verbose)))
+			      (tramp-flush-connection-property v "process-name")
+			      (tramp-flush-connection-property v "process-buffer"))
 		            (setq result
 				  (catch 'non-essential
 			            (catch 'suppress
@@ -2715,10 +2724,15 @@ They are completed by `M-x TAB' only if the current buffer is remote."
 (defun tramp-active-command-completion-p (_symbol _buffer)
   "A predicate for Tramp interactive commands.
 They are completed by `M-x TAB' only if there's an active connection or buffer."
-  (declare (tramp-suppress-trace t))
+  ;; (declare (tramp-suppress-trace t))
   (or (and (hash-table-p tramp-cache-data)
 	   (not (zerop (hash-table-count tramp-cache-data))))
       (tramp-list-remote-buffers)))
+
+;; We cannot use the `declare' form for `tramp-suppress-trace' in
+;; autoloaded functions, because the tramp-loaddefs.el generation
+;; would fail.
+(function-put #'tramp-active-command-completion-p 'tramp-suppress-trace t)
 
 (defun tramp-connectable-p (vec-or-filename)
   "Check if it is possible to connect the remote host without side-effects.
@@ -6034,6 +6048,8 @@ nil."
   (let ((found (tramp-check-for-regexp proc regexp)))
     (with-tramp-timeout (timeout)
       (while (not found)
+	;; This is needed to yield the CPU, otherwise we'll see 100% CPU load.
+	(sit-for 0 'nodisp)
 	(tramp-accept-process-output proc)
 	(unless (process-live-p proc)
 	  (tramp-error-with-buffer

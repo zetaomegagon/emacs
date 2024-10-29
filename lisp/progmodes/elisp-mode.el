@@ -246,7 +246,7 @@ Use `emacs-lisp-byte-compile-and-load' in combination with
 `native-comp-jit-compilation' set to t to achieve asynchronous
 native compilation of the current buffer's file."
   (interactive nil emacs-lisp-mode)
-  (when-let ((byte-file (emacs-lisp-native-compile)))
+  (when-let* ((byte-file (emacs-lisp-native-compile)))
     (load (file-name-sans-extension byte-file))))
 
 (defun emacs-lisp-macroexpand ()
@@ -784,13 +784,18 @@ functions are annotated with \"<f>\" via the
                         (list t (elisp--completion-local-symbols)
                               :predicate (lambda (sym)
                                            (get sym 'error-conditions))))
-                       ((and (or ?\( 'let 'let*)
+                       ((and (or ?\( 'let 'let* 'cond 'cond* 'bind*)
                              (guard (save-excursion
                                       (goto-char (1- beg))
                                       (when (eq parent ?\()
                                         (up-list -1))
-                                      (forward-symbol -1)
-                                      (looking-at "\\_<let\\*?\\_>"))))
+                                      (skip-syntax-backward " w_")
+                                      (or
+                                       (looking-at
+                                        "\\_<\\(let\\*?\\|bind\\*\\)\\_>")
+                                       (and (not (eq parent ?\())
+                                            (looking-at
+                                             "\\_<cond\\*?\\_>"))))))
                         (list t (elisp--completion-local-symbols)
                               :predicate #'elisp--shorthand-aware-boundp
                               :company-kind (lambda (_) 'variable)
@@ -1044,7 +1049,9 @@ namespace but with lower confidence."
   (let ((sym (intern-soft identifier)))
     (when sym
       (let* ((pos (get-text-property 0 'pos identifier))
-             (namespace (if pos
+             (namespace (if (and pos
+                                 ;; Reusing it in Help Mode.
+                                 (derived-mode-p 'emacs-lisp-mode))
                             (elisp--xref-infer-namespace pos)
                           'any))
              (defs (elisp--xref-find-definitions sym)))
@@ -1844,7 +1851,7 @@ Also see `elisp-eldoc-var-docstring-with-value'."
 Intended for `eldoc-documentation-functions' (which see).
 Compared to `elisp-eldoc-var-docstring', this also includes the
 current variable value and a bigger chunk of the docstring."
-  (when-let ((cs (elisp--current-symbol)))
+  (when-let* ((cs (elisp--current-symbol)))
     (when (and (boundp cs)
 	       ;; nil and t are boundp!
 	       (not (null cs))

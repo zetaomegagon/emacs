@@ -173,6 +173,24 @@ If this is nil, display the completion preview without delay."
                  (const :tag "No delay" nil))
   :version "30.1")
 
+(defcustom completion-preview-ignore-case nil
+  "Whether Completion Preview mode ignores case differences.
+
+By default this option is nil, which says that case is significant, so a
+completion candidate \"FooBar\" matches prefix \"Foo\", but not \"foo\".
+If you set it to non-nil, then Completion Preview mode also suggests
+completions that differ in case from the prefix that you type; for
+example, it may suggest completing \"foo\" with the suffix \"Bar\" when
+there's an available completion candidate \"FooBar\".  Note that in this
+case, when you insert the completion (with `completion-preview-insert'),
+Completion Preview mode does not update the completed prefix according
+to the capitalization of the completion candidate, instead it simply
+ignores such case differences, so the resulting string is \"fooBar\".
+
+See also `completion-ignore-case'."
+  :type 'boolean
+  :version "31.1")
+
 (defvar completion-preview-sort-function #'minibuffer--sort-by-length-alpha
   "Sort function to use for choosing a completion candidate to preview.")
 
@@ -345,6 +363,7 @@ candidates or if there are multiple matching completions and
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   (let* ((pred (plist-get props :predicate))
          (string (buffer-substring beg end))
+         (completion-ignore-case completion-preview-ignore-case)
          (md (completion-metadata string table pred))
          (sort-fn (or (completion-metadata-get md 'cycle-sort-function)
                       (completion-metadata-get md 'display-sort-function)
@@ -361,11 +380,11 @@ candidates or if there are multiple matching completions and
          (prefix (substring string base)))
     (when last
       (setcdr last nil)
-      (when-let ((sorted (funcall sort-fn
-                                  (delete prefix (all-completions prefix all))))
-                 (common (try-completion prefix sorted))
-                 (lencom (length common))
-                 (suffixes sorted))
+      (when-let* ((sorted (funcall sort-fn
+                                   (delete prefix (all-completions prefix all))))
+                  (common (try-completion prefix sorted))
+                  (lencom (length common))
+                  (suffixes sorted))
         (unless (and (cdr suffixes) completion-preview-exact-match-only)
           ;; Remove the common prefix from each candidate.
           (while sorted
@@ -379,8 +398,8 @@ candidates or if there are multiple matching completions and
     (and (consp res)
          (not (functionp res))
          (seq-let (beg end table &rest plist) res
-           (or (when-let ((data (completion-preview--try-table
-                                 table beg end plist)))
+           (or (when-let* ((data (completion-preview--try-table
+                                  table beg end plist)))
                  `(,(+ beg (length (car data))) ,end ,plist ,@data))
                (unless (eq 'no (plist-get plist :exclusive))
                  ;; Return non-nil to exclude other capfs.
@@ -392,7 +411,7 @@ candidates or if there are multiple matching completions and
       (run-hook-wrapped
        'completion-at-point-functions
        #'completion-preview--capf-wrapper)
-    (when-let ((suffix (car suffixes)))
+    (when-let* ((suffix (car suffixes)))
       (set-text-properties 0 (length suffix)
                            (list 'face (if (cdr suffixes)
                                            'completion-preview

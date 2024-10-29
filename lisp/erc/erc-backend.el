@@ -605,7 +605,7 @@ escape hatch for inhibiting their transmission.")
                     (concat "Unbreakable line encountered "
                             "(Recover input with \\[erc-previous-command])"))))
                 (goto-char upper))
-              (when-let ((cmp (find-composition (point) (1+ (point)))))
+              (when-let* ((cmp (find-composition (point) (1+ (point)))))
                 (if (= (car cmp) (point-min))
                     (goto-char (nth 1 cmp))
                   (goto-char (car cmp)))))
@@ -1057,9 +1057,9 @@ Conditionally try to reconnect and take appropriate action."
     (setq erc--hidden-prompt-overlay nil)))
 
 (cl-defmethod erc--conceal-prompt ()
-  (when-let (((null erc--hidden-prompt-overlay))
-             (ov (make-overlay erc-insert-marker (1- erc-input-marker)
-                               nil 'front-advance)))
+  (when-let* (((null erc--hidden-prompt-overlay))
+              (ov (make-overlay erc-insert-marker (1- erc-input-marker)
+                                nil 'front-advance)))
     (defvar erc-prompt-hidden)
     (overlay-put ov 'display erc-prompt-hidden)
     (setq erc--hidden-prompt-overlay ov)))
@@ -1534,11 +1534,15 @@ See also `erc-server-responses'."
   (gethash (format (if (numberp command) "%03i" "%s") command)
            erc-server-responses))
 
+(defvar erc--parsed-response nil)
+
 (defun erc-call-hooks (process message)
   "Call hooks associated with MESSAGE in PROCESS.
 
 Finds hooks by looking in the `erc-server-responses' hash table."
-  (let ((hook (or (erc-get-hook (erc-response.command message))
+  (let ((erc--parsed-response message)
+        (erc--msg-prop-overrides erc--msg-prop-overrides)
+        (hook (or (erc-get-hook (erc-response.command message))
                   'erc-default-server-functions)))
     (run-hook-with-args-until-success hook process message)
     ;; Some handlers, like `erc-cmd-JOIN', open new targets without
@@ -1847,8 +1851,8 @@ add things to `%s' instead."
                                    ?t tgt ?m mode)
             (erc-display-message parsed 'notice buf
                                  'MODE ?n nick ?u login
-                                 ?h host ?t tgt ?m mode)))
-      (erc-banlist-update proc parsed))))
+                                 ?h host ?t tgt ?m mode)))))
+  nil)
 
 (defun erc--wrangle-query-buffers-on-nick-change (old new)
   "Create or reuse a query buffer for NEW nick after considering OLD nick.
@@ -2074,12 +2078,12 @@ like `erc-insert-modify-hook'.")
           (defvar erc-receive-query-display)
           (defvar erc-receive-query-display-defer)
           (if privp
-              (when-let ((erc-join-buffer
-                          (or (and (not erc-receive-query-display-defer)
-                                   erc-receive-query-display)
-                              (and erc-ensure-target-buffer-on-privmsg
-                                   (or erc-receive-query-display
-                                       erc-join-buffer)))))
+              (when-let* ((erc-join-buffer
+                           (or (and (not erc-receive-query-display-defer)
+                                    erc-receive-query-display)
+                               (and erc-ensure-target-buffer-on-privmsg
+                                    (or erc-receive-query-display
+                                        erc-join-buffer)))))
                 (push `(erc-receive-query-display . ,(intern cmd))
                       erc--display-context)
                 (setq buffer (erc--open-target nick)))
@@ -2258,12 +2262,12 @@ primitive value."
   (if-let* ((table (or erc--isupport-params
                        (erc-with-server-buffer erc--isupport-params)))
             (value (with-memoization (gethash key table)
-                     (when-let ((v (assoc (symbol-name key)
-                                          (or erc-server-parameters
-                                              (erc-with-server-buffer
+                     (when-let* ((v (assoc (symbol-name key)
+                                           (or erc-server-parameters
+                                               (erc-with-server-buffer
                                                 erc-server-parameters)))))
-                       (if-let ((val (cdr v))
-                                ((not (string-empty-p val))))
+                       (if-let* ((val (cdr v))
+                                 ((not (string-empty-p val))))
                            (erc--parse-isupport-value val)
                          '--empty--)))))
       (pcase value

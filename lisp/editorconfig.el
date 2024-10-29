@@ -211,7 +211,7 @@ This hook will be run even when there are no matching sections in
     (mustache-mode mustache-basic-offset)
     (nasm-mode nasm-basic-offset)
     (nginx-mode nginx-indent-level)
-    (nxml-mode nxml-child-indent (nxml-attribute-indent . 2))
+    (nxml-mode . editorconfig--get-indentation-nxml-mode)
     (objc-mode c-basic-offset)
     (octave-mode octave-block-offset)
     (perl-mode perl-indent-level)
@@ -266,7 +266,9 @@ This is a fallback used for those modes which don't set
 `editorconfig-indent-size-vars'.
 
 Each element should look like (MODE . SETTING) where SETTING
-should obey the same rules as `editorconfig-indent-size-vars'."
+should obey the same rules as `editorconfig-indent-size-vars',
+i.e. be either a list of variable names or a function returning
+a list of settings in the form (VARIABLE . VALUE)."
   :type '(alist :key-type symbol
                 :value-type (choice function
                                     (repeat
@@ -281,14 +283,11 @@ If set, enable that mode when `trim_trailing_whitespace` is set to true.
 Otherwise, use `delete-trailing-whitespace'."
   :type 'symbol)
 
-(defvar editorconfig-properties-hash nil
+(defvar-local editorconfig-properties-hash nil
   "Hash object of EditorConfig properties that was enabled for current buffer.
 Set by `editorconfig-apply' and nil if that is not invoked in
 current buffer yet.")
-(make-variable-buffer-local 'editorconfig-properties-hash)
-(put 'editorconfig-properties-hash
-     'permanent-local
-     t)
+(put 'editorconfig-properties-hash 'permanent-local t)
 
 (defvar editorconfig-lisp-use-default-indent nil
   "Selectively ignore the value of indent_size for Lisp files.
@@ -340,6 +339,11 @@ Make a message by passing ARGS to `format-message'."
     (TeX-brace-indent-level . ,size)
     (LaTeX-indent-level . ,size)
     (LaTeX-item-indent . ,(- size))))
+
+(defun editorconfig--get-indentation-nxml-mode (size)
+  "Vars to set `nxml-mode' indent size to SIZE."
+  `((nxml-child-indent . ,size)
+    (nxml-attribute-indent . ,(* 2 size))))
 
 (defun editorconfig--get-indentation-lisp-mode (size)
   "Set indent size to SIZE for Lisp mode(s)."
@@ -430,8 +434,18 @@ heuristic for those modes not found there."
   (let ((style (gethash 'indent_style props))
         (size (gethash 'indent_size props))
         (tab_width (gethash 'tab_width props)))
-    (when tab_width
-      (setq tab_width (string-to-number tab_width)))
+    (cond
+     (tab_width (setq tab_width (string-to-number tab_width)))
+     ;; The EditorConfig spec is excessively eager to set `tab-width'
+     ;; even when not explicitly requested (bug#73991).
+     ;; As a trade-off, we accept `indent_style=tab' as a good enough hint.
+     ((and (equal style "tab") (editorconfig-string-integer-p size))
+      (setq tab_width (string-to-number size))))
+
+    ;; When users choose `indent_size=tab', they most likely prefer
+    ;; `indent_style=tab' as well.
+    (when (and (null style) (equal size "tab"))
+      (setq style "tab"))
 
     (setq size
           (cond ((editorconfig-string-integer-p size)
@@ -457,9 +471,7 @@ heuristic for those modes not found there."
 
 (defvar-local editorconfig--apply-coding-system-currently nil
   "Used internally.")
-(put 'editorconfig--apply-coding-system-currently
-     'permanent-local
-     t)
+(put 'editorconfig--apply-coding-system-currently 'permanent-local t)
 
 (defun editorconfig-merge-coding-systems (end-of-line charset)
   "Return merged coding system symbol of END-OF-LINE and CHARSET."

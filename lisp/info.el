@@ -223,7 +223,7 @@ These directories are searched after those in `Info-directory-list'."
       "org" "pcl-cvs" "pgg" "rcirc" "reftex" "remember" "sasl" "sc"
       "semantic" "ses" "sieve" "smtpmail" "speedbar" "srecode"
       "todo-mode" "tramp" "transient" "url" "use-package" "vhdl-mode"
-      "vip" "viper" "vtable" "widget" "wisent" "woman") .
+      "viper" "vtable" "widget" "wisent" "woman") .
      "https://www.gnu.org/software/emacs/manual/html_node/%m/%e"))
   "Alist telling `Info-mode' where manuals are accessible online.
 
@@ -667,7 +667,7 @@ in `Info-file-supports-index-cookies-list'."
 	  (goto-char (point-min))
 	  (condition-case ()
 	      (if (and (re-search-forward
-			"makeinfo[ \n]version[ \n]\\([0-9]+.[0-9]+\\)"
+                        "\\(?:makeinfo\\|texi2any\\)[ \n]version[ \n]\\([0-9]+.[0-9]+\\)"
 			(line-beginning-position 4) t)
 		       (not (version< (match-string 1) "4.7")))
 		  (setq found t))
@@ -823,10 +823,10 @@ Select the window used, if it has been made."
 	    ;; If we just created the Info buffer, go to the directory.
 	    (Info-directory))))
 
-    (when-let ((window (display-buffer buffer
-			               (if other-window
-				           '(nil (inhibit-same-window . t))
-			                 '(display-buffer-same-window)))))
+    (when-let* ((window (display-buffer buffer
+			                (if other-window
+				            '(nil (inhibit-same-window . t))
+			                  '(display-buffer-same-window)))))
       (select-window window))))
 
 
@@ -2020,7 +2020,7 @@ See `completing-read' for a description of arguments and usage."
          (lambda (string pred action)
            (complete-with-action
             action
-            (when-let ((file2 (Info-find-file file1 'noerror t)))
+            (when-let* ((file2 (Info-find-file file1 'noerror t)))
               (Info-build-node-completions file2))
             string pred))
 	 nodename predicate code))))
@@ -4675,7 +4675,7 @@ Advanced commands:
 
 (defvar Info-file-list-for-emacs
   '("ediff" "eudc" "forms" "gnus" "info" ("Info" . "info") ("mh" . "mh-e")
-    "sc" "message" ("dired" . "dired-x") "viper" "vip" "idlwave"
+    "sc" "message" ("dired" . "dired-x") "viper" "idlwave"
     ("c" . "ccmode") ("c++" . "ccmode") ("objc" . "ccmode")
     ("java" . "ccmode") ("idl" . "ccmode") ("pike" . "ccmode")
     ("skeleton" . "autotype") ("auto-insert" . "autotype")

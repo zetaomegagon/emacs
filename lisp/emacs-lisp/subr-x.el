@@ -357,7 +357,8 @@ automatically killed, which means that in a such case
         ;; Flush BUFFER before making it available again, i.e. clear
         ;; its contents, remove all overlays and buffer-local
         ;; variables.  Is it enough to safely reuse the buffer?
-        (erase-buffer)
+        (let ((inhibit-read-only t))
+          (erase-buffer))
         (delete-all-overlays)
         (let (change-major-mode-hook)
           (kill-all-local-variables t))
@@ -387,7 +388,10 @@ buffer when possible, instead of creating a new one on each call."
 (defun string-pixel-width (string &optional buffer)
   "Return the width of STRING in pixels.
 If BUFFER is non-nil, use the face remappings from that buffer when
-determining the width."
+determining the width.
+If you call this function to measure pixel width of a string
+with embedded newlines, it returns the width of the widest
+substring that does not include newlines."
   (declare (important-return-value t))
   (if (zerop (length string))
       0
@@ -471,7 +475,7 @@ this defaults to the current buffer."
                  (t
                   disp)))
           ;; Remove any old instances.
-          (when-let ((old (assoc prop disp)))
+          (when-let* ((old (assoc prop disp)))
             (setq disp (delete old disp)))
           (setq disp (cons (list prop value) disp))
           (when vector

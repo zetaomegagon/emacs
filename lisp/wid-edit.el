@@ -56,7 +56,6 @@
 
 ;;; Code:
 (require 'cl-lib)
-(eval-when-compile (require 'subr-x)) 	; when-let
 
 ;; The `string' widget completion uses this.
 (declare-function ispell-get-word "ispell"
@@ -1042,8 +1041,8 @@ button end points."
 
 (defun widget-text (widget)
   "Get the text representation of the widget."
-  (when-let ((from (widget-get widget :from))
-             (to (widget-get widget :to)))
+  (when-let* ((from (widget-get widget :from))
+              (to (widget-get widget :to)))
     (when (eq (marker-buffer from) (marker-buffer to)) ; is this check necessary?
       (buffer-substring-no-properties from to))))
 
@@ -1336,7 +1335,10 @@ nothing is shown in the echo area."
     (let ((new (widget-tabable-at)))
       (while (and (eq (widget-tabable-at) new) (not (bobp)))
 	(backward-char)))
-    (unless (bobp) (forward-char)))
+    ;; If the widget is at BOB, point is already at the widget's
+    ;; starting position; otherwise, advance point to put it at the
+    ;; start of the widget (cf. bug#69943 and bug#72995).
+    (unless (and (widget-tabable-at) (bobp)) (forward-char)))
   (unless suppress-echo
     (widget-echo-help (point)))
   (run-hooks 'widget-move-hook))
@@ -2939,7 +2941,7 @@ Otherwise, the new widget is the default child of WIDGET.
 The new widget gets inserted at the position of the BEFORE child."
   (save-excursion
     (let ((children (widget-get widget :children))
-          (last-deleted (when-let ((lst (widget-get widget :last-deleted)))
+          (last-deleted (when-let* ((lst (widget-get widget :last-deleted)))
                           (prog1
                               (pop lst)
                             (widget-put widget :last-deleted lst)))))
@@ -3891,6 +3893,30 @@ or a list with the default value of each component of the list WIDGET."
   (and (consp value)
        (widget-group-match widget
 			   (widget-apply widget :value-to-internal value))))
+
+(defun widget-single-or-list-to-internal (widget val)
+  (if (listp val) val
+    (cons val (make-list (1- (length (widget-get widget :args))) nil))))
+
+(define-widget 'single-or-list 'group
+  "Either a single value (`nlistp') or a list of values (`listp').
+
+If the initial value is `nlistp', the first child widget gets
+that value and the other children get nil.
+
+If the first child's value is `nlistp' and the other children are
+nil, then `widget-value' just returns the first child's value."
+  ;; The internal value is always a list; only :value-to-internal and
+  ;; :match ever get called with the external value, which might be
+  ;; `nlistp'.
+  :value-to-external (lambda (_ val)
+                       (if (and (nlistp (car val))
+                                (cl-every #'null (cdr val)))
+                           (car val) val))
+  :value-to-internal #'widget-single-or-list-to-internal
+  :match (lambda (widget val)
+           (widget-group-match widget (widget-single-or-list-to-internal widget val))))
+
 
 ;;; The `lazy' Widget.
 ;;
